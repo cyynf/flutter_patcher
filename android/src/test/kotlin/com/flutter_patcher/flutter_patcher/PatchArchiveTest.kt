@@ -23,22 +23,22 @@ class PatchArchiveTest {
         extra: Map<String, ByteArray> = emptyMap(),
         badDigest: Boolean = false,
         stored: Boolean = false,
+        resource: String? = null,
     ): ByteArray {
         val path = if (kind == "bytecode") PatchArchive.MODULE else PatchArchive.CODE
         val code = byteArrayOf(1, 2, 3)
-        val asset = byteArrayOf(4)
-        val font = byteArrayOf(5)
         val manifest = JSONObject()
             .put("format_version", PatchArchive.FORMAT).put("patch_seq", 7).put("fingerprint", fp)
             .put("code", row(path, code).put("kind", kind)
                 .apply { if (badDigest) put("sha256", "0".repeat(64)) })
-            .put("assets", JSONArray().put(row("assets/a.svg", asset).put("key", "a.svg")))
-            .put("fonts", JSONArray().put(row("fonts/f.otf", font).put("family", "F")))
+            .put("assets", JSONArray())
+            .put("fonts", JSONArray())
+        if (resource != null) manifest.getJSONArray(resource).put(row("$resource/a", byteArrayOf(4)))
         val out = ByteArrayOutputStream()
         ZipOutputStream(out).use { zip ->
             for ((name, bytes) in mapOf(
                 "patch_manifest.json" to manifest.toString().toByteArray(),
-                path to code, "assets/a.svg" to asset, "fonts/f.otf" to font,
+                path to code,
             ) + extra) {
                 zip.putNextEntry(ZipEntry(name).apply {
                     // As the CLI writes a bytecode payload: no compression, no data descriptor.
@@ -61,7 +61,7 @@ class PatchArchiveTest {
     @Test
     fun readsEveryListedEntry() {
         val read = PatchArchive.readLibapp(archive(), fp, 7)
-        assertEquals(setOf("patch_manifest.json", "libapp.so", "assets/a.svg", "fonts/f.otf"), read.entries.keys)
+        assertEquals(setOf("patch_manifest.json", "libapp.so"), read.entries.keys)
         assertContentEquals(byteArrayOf(1, 2, 3), read.entries.getValue("libapp.so").bytes())
     }
 
@@ -69,7 +69,7 @@ class PatchArchiveTest {
     fun readsBytecodeEntriesAsRangesOfTheEnvelope() {
         val bytes = envelope(archive(kind = "bytecode", stored = true))
         val read = PatchArchive.readBytecode(bytes, fp, 7)
-        assertEquals(setOf("patch_manifest.json", "module.bc", "assets/a.svg", "fonts/f.otf"), read.entries.keys)
+        assertEquals(setOf("patch_manifest.json", "module.bc"), read.entries.keys)
         assertContentEquals(byteArrayOf(1, 2, 3), read.entries.getValue("module.bc").bytes())
         assertTrue(read.entries.values.all { it.source === bytes && it.offset >= PatchEnvelope.HEADER })
     }
@@ -92,6 +92,18 @@ class PatchArchiveTest {
         val module = PatchArchive.readBytecode(bytes, fp, 7).entries.getValue("module.bc")
         bytes[module.offset] = (bytes[module.offset] + 1).toByte()
         assertEquals("ZIP CRC mismatch", reason(bytes))
+    }
+
+    @Test
+    fun rejectsResourcePatchesInBothFormats() {
+        for (resource in listOf("assets", "fonts")) {
+            assertEquals("Resource patches are unsupported", assertFailsWith<IllegalArgumentException> {
+                PatchArchive.readLibapp(archive(resource = resource), fp, 7)
+            }.message)
+            assertEquals("Resource patches are unsupported", assertFailsWith<IllegalArgumentException> {
+                PatchArchive.readBytecode(envelope(archive(kind = "bytecode", stored = true, resource = resource)), fp, 7)
+            }.message)
+        }
     }
 
     @Test

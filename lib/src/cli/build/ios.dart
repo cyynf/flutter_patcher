@@ -5,7 +5,7 @@ import 'package:archive/archive.dart';
 import 'package:path/path.dart' as p;
 
 import '../core.dart';
-import '../patch/resources.dart';
+import '../baseline/resources.dart';
 import 'pipeline.dart';
 
 /// Info.plist key carrying the host trust text; signed with the app, read by

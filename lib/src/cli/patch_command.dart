@@ -38,9 +38,9 @@ Future<int> patchCommand(ArgResults args) async {
     requireSupportedHost(target: platform);
     final withdraw = args['withdraw'] == true;
     require(
-      !withdraw || !(args.wasParsed('target') || args.wasParsed('assets')),
+      !withdraw || !args.wasParsed('target'),
       'USAGE_ERROR',
-      'patch --withdraw compiles nothing; drop --target and --assets.',
+      'patch --withdraw compiles nothing; drop --target.',
     );
 
     final cache = managedCache(args['cache-dir'] as String?);
@@ -122,7 +122,6 @@ Future<int> patchCommand(ArgResults args) async {
       minBuild: int.tryParse(versionCode) ?? -1,
 
       target: args['target'] as String,
-      assets: (args['assets'] as List).cast<String>(),
       platform: platform,
       offline: offline,
     );

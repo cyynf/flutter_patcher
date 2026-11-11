@@ -6,12 +6,11 @@ import java.nio.ByteOrder
 import java.nio.charset.CharacterCodingException
 import java.util.zip.CRC32
 import java.util.zip.ZipInputStream
-import org.json.JSONArray
 import org.json.JSONObject
 
 /**
  * The payload of a patch file: a ZIP whose `patch_manifest.json`
- * lists its code and resources with their digests. What the manifest must
+ * lists its code with its digest. What the manifest must
  * vouch for is checked once, here, for both strategies; only reading the ZIP
  * differs. An SO payload is unpacked at install; a bytecode payload is
  * STORED and checked at every boot in the snapshot handed to Dart.
@@ -57,8 +56,6 @@ internal class PatchArchive private constructor(
         fun readBytecode(envelope: ByteArray, fingerprint: String, seq: Long): PatchArchive =
             vouched(stored(envelope, PatchEnvelope.HEADER), fingerprint, seq, "bytecode", MODULE)
 
-        fun rows(array: JSONArray) = (0 until array.length()).map { array.getJSONObject(it) }
-
         /** The manifest of [files] lists exactly them, each with its length and digest. */
         private fun vouched(files: Map<String, Entry>, fingerprint: String, seq: Long, kind: String, code: String): PatchArchive {
             val manifest = files["patch_manifest.json"]?.bytes() ?: throw IllegalArgumentException("Archive manifest")
@@ -76,8 +73,9 @@ internal class PatchArchive private constructor(
             val row = m.getJSONObject("code")
             require(row.getString("kind") == kind && row.getString("path") == code) { "Code kind" }
             check(row, code)
-            rows(m.getJSONArray("assets")).forEach { check(it, "assets/") }
-            rows(m.getJSONArray("fonts")).forEach { check(it, "fonts/") }
+            require(m.getJSONArray("assets").length() == 0 && m.getJSONArray("fonts").length() == 0) {
+                "Resource patches are unsupported"
+            }
             require(listed == files.keys) { "Unlisted archive entries" }
             return PatchArchive(manifest, files)
         }

@@ -12,7 +12,7 @@ import io.flutter.app.FlutterApplication
  * Only an SO host built with a host policy swaps `libapp.so` here, before the
  * engine starts: [PatchHost.bootCode] settles the previous attempt, checks the
  * active candidate's unpacked files and arms a new attempt,
- * then [LoaderHook] points FlutterLoader at it. Its resources reach the engine
+ * then [LoaderHook] points FlutterLoader at it. Its verified code starts
  * from the generated Dart entry. A bytecode host loads its patch from Dart; a
  * host without a policy runs the original app.
  */

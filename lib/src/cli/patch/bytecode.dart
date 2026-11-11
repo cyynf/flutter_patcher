@@ -8,7 +8,6 @@ import '../baseline/manifest.dart';
 import '../build/defines.dart';
 import '../build/pins.dart';
 import '../build/virtual_paths.dart';
-import 'hooks.dart';
 import 'pipeline.dart';
 import 'rules.dart';
 import 'sources.dart';
@@ -20,17 +19,18 @@ typedef _Module = ({
 });
 
 /// A bytecode host's patch: a dynamic module of the changed code, linked
-/// against the host. The lean tier carries the application's own packages;
-/// the whole tier also every free dependency.
+/// against the host. Only changed libraries and their required callers/parts
+/// are remapped; unchanged libraries retain their host identities.
 class BytecodeProducer implements CodeProducer {
   BytecodeProducer(this.run);
   final PatchRun run;
   late final String usage;
   late final Map<String, dynamic> compileReceipt;
   late Set<String> own;
-  Set<String>? wholeOwn;
+  Set<String>? freePackages;
+  late Set<String> selected;
+  late Set<String> baselineSources;
   late String tier;
-  bool dependencyChanged = false;
 
   PatchPipeline get _p => run.pipeline;
   String get _baseline => run.resolved.compileRoot;
@@ -147,7 +147,7 @@ class BytecodeProducer implements CodeProducer {
       }
     }
     trace('source changes');
-    // The whole tier renames every free package into the module as well.
+    // Only free packages may supply changed libraries.
     // The packages pinned at the host build (native capability and all it
     // reaches) always stay the host's, so changing one needs a release.
     final pinned = compileReceipt['pinned_packages'];
@@ -175,16 +175,24 @@ class BytecodeProducer implements CodeProducer {
       facts.newlyPinned.addAll(
         now.pinned.keys.where((n) => !pinned.containsKey(n)).toList()..sort(),
       );
-      wholeOwn = {...own, ...now.free.where((n) => !pinned.containsKey(n))};
+      freePackages = {...own, ...now.free.where((n) => !pinned.containsKey(n))};
     }
     require(
-      !dependencyChanged || wholeOwn != null,
+      !dependencyChanged || freePackages != null,
       'PATCH_BASELINE_INCOMPATIBLE',
       'This host predates pinned-package records; rebuild it to patch '
           'dependency changes',
     );
-    this.dependencyChanged = dependencyChanged;
-    tier = dependencyChanged ? 'whole' : 'lean';
+    baselineSources = hashes.keys.cast<String>().toSet();
+    selected = await selectPatchSources(
+      config: run.config,
+      packages: freePackages ?? own,
+      changed: changed,
+      baselineSources: baselineSources,
+      entry: 'package:$app/${run.req.target.substring(4)}',
+    );
+    own = {for (final uri in selected) Uri.parse(uri).pathSegments.first};
+    tier = own.any((name) => name != app) ? 'whole' : 'lean';
   }
 
   final Map<String, _Module> _modules = {};
@@ -194,8 +202,9 @@ class BytecodeProducer implements CodeProducer {
     final remap = await remapSources(
       run.config,
       dir,
-      tier == 'lean' ? own : wholeOwn!,
+      own,
       run.req.moduleId,
+      selected,
     );
     require(
       !await File(p.join(dir, run.app, '__patch_entry.dart')).exists(),
@@ -258,7 +267,16 @@ class BytecodeProducer implements CodeProducer {
       ),
       'allocated': p.join(_baseline, 'allocate_finalized.json'),
       'own': names.values.toList(),
-      'original_own': (tier == 'lean' ? own : wholeOwn!).toList(),
+      // The compiler's package-wide checks may exclude a host package only
+      // when every one of its baseline sources is carried. Otherwise its
+      // unchanged libraries remain genuine host dependencies.
+      'original_own': [
+        for (final name in own)
+          if (baselineSources
+              .where((uri) => uri.startsWith('package:$name/'))
+              .every((uri) => selected.contains(Uri.parse(uri).toString())))
+            name,
+      ],
       'out': p.join(work, 'module.bc'),
       if (!emit) 'kernel_out': p.join(work, '$tier-analysis.dill'),
     });
@@ -276,12 +294,11 @@ class BytecodeProducer implements CodeProducer {
     // Tools write their report to stdout; CFE incidental diagnostics stay in the log.
     await File(output).writeAsString(result.stdout);
     final report = await readObject(output);
-    // The host's icon list only feeds font subsetting; reports keep its size.
+    // Legacy tools still report font analysis, which code-only patches ignore.
     run.reports.add({
       for (final entry in report.entries)
-        if (entry.key != 'host_icons') entry.key: entry.value,
-      if (report['host_icons'] case final List icons)
-        'host_icon_count': icons.length,
+        if (!const {'host_icons', 'fonts', 'dynamic_fonts'}.contains(entry.key))
+          entry.key: entry.value,
     });
     require(
       report['status'] != 'compile_failed',
@@ -295,70 +312,20 @@ class BytecodeProducer implements CodeProducer {
 
   @override
   Future<PatchCode> produce() async {
-    final req = run.req, work = run.work, sdk = _p.sdk;
-    // Before the bundle build: it shadows hook packages in this config.
-    await _module(tier);
-    run.phase = 'resources';
-    final bundle = p.join(work, 'flutter_assets');
-    // The bundle build compiles the whole app once more just for assets.
-    // Meanwhile the module compiles: assets never change it. The compile
-    // emits right away (the tool emits only when every check passes).
-    final bundling = withoutBuildHooks(
-      run.config,
-      p.join(work, 'no-hooks'),
-      () => _p.commands.run(sdk.host.flutterLauncher(_p.managed), [
-        '--suppress-analytics',
-        'build',
-        'bundle',
-        '--release',
-        '--no-pub',
-        '--target-platform',
-        req.platform == 'ios' ? 'ios' : 'android-arm64',
-        '--target',
-        req.target,
-        '--asset-dir',
-        bundle,
-      ], cwd: run.project),
-    );
-    final compiling = _compile(true);
-    try {
-      await bundling;
-    } catch (_) {
-      await compiling.then<void>((_) {}, onError: (_) {});
-      rethrow;
-    }
-    var outcome = await compiling;
-    // Lean rejected: the whole tier carries the free packages the module
-    // used through the host interface, and may pass.
-    if (outcome['status'] != 'compiled' && tier == 'lean' && wholeOwn != null) {
-      tier = 'whole';
-      outcome = await _compile(true);
-    }
+    run.rules.check(PatchStage.result, run.facts);
+    final work = run.work;
+    final outcome = await _compile(true);
     run.facts
       ..tier = tier
       ..report = outcome;
-    final hostFiles = (run.receipt['resources'] as Map?)?['files'] as Map?;
     return PatchCode(
       kind: 'bytecode',
       file: p.join(work, 'module.bc'),
-      bundle: bundle,
-
-      fonts: (payload) => payload.collectFonts(
-        outcome['fonts'] as List? ?? [],
-        hostIcons: outcome['host_icons'] as List?,
-        hostFiles: hostFiles ?? const {},
-      ),
       metadata: {'tier': tier},
       report: {
         'tier': tier,
-        if (tier == 'whole')
-          'upgrade': {
-            'dependency_changed': dependencyChanged,
-            'carried_packages': (wholeOwn!.toList()..sort()),
-            'message':
-                'Dependencies other than those pinned to the host run '
-                'in the module interpreter.',
-          },
+        'selected_sources': selected.toList(),
+        'carried_packages': own.toList()..sort(),
       },
     );
   }

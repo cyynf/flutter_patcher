@@ -16,7 +16,6 @@ import '../sdk/package_inputs.dart';
 import 'bytecode.dart';
 import 'libapp.dart';
 import 'package.dart';
-import 'resources.dart';
 import 'rules.dart';
 import 'scan.dart';
 import 'sources.dart';
@@ -39,7 +38,6 @@ class PatchRequest {
   final int moduleId, minBuild;
 
   final bool offline;
-  final List<String> assets;
   PatchRequest({
     required this.project,
     this.fingerprint,
@@ -47,7 +45,6 @@ class PatchRequest {
     required this.output,
     required this.moduleId,
     required this.minBuild,
-    this.assets = const [],
     this.target = 'lib/main.dart',
     this.platform = 'android',
     this.offline = false,
@@ -210,21 +207,12 @@ class PatchCode {
   PatchCode({
     required this.kind,
     required this.file,
-    required this.bundle,
-
-    required this.fonts,
     this.metadata = const {},
     this.report = const {},
   });
 
   /// A key of [codePaths], and the file holding that code.
   final String kind, file;
-
-  /// A flutter_assets directory built from the patch's sources.
-  final String bundle;
-
-  /// Collects the fonts the patch ships.
-  final Future<void> Function(PatchResources) fonts;
 
   /// Extra signed manifest fields, and extra report fields.
   final Map<String, Object?> metadata, report;
@@ -238,7 +226,7 @@ abstract class CodeProducer {
   /// Input facts beyond the shared dependency comparison.
   Future<void> inputs(bool dependencyChanged);
 
-  /// Builds the patch's code and a bundle of its resources.
+  /// Builds the patch's code.
   Future<PatchCode> produce();
 }
 
@@ -369,57 +357,19 @@ class PatchPipeline {
       final code = await producer.produce();
       current.rules.check(PatchStage.code, current.facts);
 
-      current.phase = 'resources';
-      final payload = PatchResources(code.bundle, work, commands, managed);
-      final oldResources = receipt['resources'];
-      require(
-        oldResources is Map,
-        'PATCH_BASELINE_INCOMPATIBLE',
-        'Baseline lacks resource inventory; rebuild host',
-      );
-      await payload.collect(
-        Map<String, dynamic>.from(oldResources as Map),
-        req.assets,
-      );
       final facts = current.facts
-        ..assets = [for (final row in payload.assets) row['key'] as String]
-        ..deletedAssets = payload.deleted
         ..engineCapabilities = [
           for (final name
               in receipt['engine_capabilities'] as List? ?? const [])
             name as String,
         ];
-      for (final key in facts.assets) {
-        if (key != 'AssetManifest.bin') facts.changed.add('asset:$key');
-      }
-      await code.fonts(payload);
-      // Font-only changes are meaningful even when all Dart hashes match.
-      if (payload.fonts.isNotEmpty) {
-        final oldFiles = oldResources['files'] as Map;
-        final manifest = File(p.join(code.bundle, 'FontManifest.json'));
-        if (await manifest.exists() &&
-            await hashFile(manifest.path) !=
-                oldFiles['FontManifest.json']?['sha256']) {
-          facts.changed.add('fonts');
-        }
-        for (final key in await readObjectFontSources(code.bundle)) {
-          if (await hashFile(p.join(code.bundle, key)) !=
-              oldFiles[key]?['sha256']) {
-            facts.changed.add('font:$key');
-          }
-        }
-      }
-      await _scan(current, payload);
-      current.rules.check(PatchStage.resources, facts);
+      await _scan(current);
       current.rules.check(PatchStage.result, facts);
 
       current.phase = 'package';
       final draft = await packPatch(
         kind: code.kind,
         code: code.file,
-        extraEntries: payload.entries,
-        fonts: payload.fonts,
-        assets: payload.assets,
         metadata: {
           'module_id': req.moduleId,
           'fingerprint': resolved.fingerprint,
@@ -483,36 +433,20 @@ class PatchPipeline {
     }
   }
 
-  /// Facts of the boundary warnings: read only when the patch changes code
-  /// or assets, which is when they apply.
-  Future<void> _scan(PatchRun run, PatchResources payload) async {
+  /// Gather background entry warnings for code changes.
+  Future<void> _scan(PatchRun run) async {
     final facts = run.facts;
-    final sizes = [
-      for (final e in payload.entries.entries) (e.key, e.value.length),
-    ]..sort((a, b) => b.$2.compareTo(a.$2));
-    facts
-      ..resourceBytes = sizes.fold(0, (n, r) => n + r.$2)
-      ..largestResources = sizes.take(3).toList();
-    final assets = facts.changedAssets;
-    if (assets.isEmpty && !facts.codeChanged) return;
+    if (!facts.codeChanged) return;
     final scan = SourceScan(
       await packageRoots(run.config),
       run.app,
       sdkRoots: [sdk.root, managed],
     );
-    if (assets.isNotEmpty) {
-      facts.nativeAssetReaders = await scan.nativeAssetReaders(
-        run.req.platform,
-      );
-      facts.assetsPassed = await scan.assetsPassedTo(
-        facts.nativeAssetReaders.keys,
-        assets,
-      );
-    }
     final background = await scan.backgroundEntries();
     facts
       ..backgroundEntries = background.entries
       ..backgroundRegistrations = background.registrations;
+    run.rules.check(PatchStage.background, facts);
     trace('source scan');
   }
 

@@ -191,8 +191,7 @@ dart run flutter_patcher patch android --withdraw
 |---|---|---|
 | `--version-code <n>` | The release to patch | The number after `+` in `version` in `pubspec.yaml` |
 | `--flavor <name>` | The release's flavor | `default` |
-| `--withdraw` | Writes a withdrawal file: devices that apply it delete their patch and run the installed version from the next cold start. It cannot be combined with `--target` or `--assets` (`USAGE_ERROR`) | Off |
-| `--assets <key>` | Overrides only these asset keys; repeatable | Every changed asset |
+| `--withdraw` | Writes a withdrawal file: devices that apply it delete their patch and run the installed version from the next cold start. It cannot be combined with `--target` (`USAGE_ERROR`) | Off |
 | `--target <file>` | Entry file; it must be the one `build` used | `lib/main.dart` |
 | `--out <dir>` | Output directory; it must not exist | `.dart_tool/flutter_patcher/patches/<timestamp>/` |
 | `--baseline-store <uri>` | Reads the baseline here | `baseline_store` in `flutter_patcher.yaml` |
@@ -217,10 +216,10 @@ Strategy, channel and patch key come from the baseline, so `patch` has no option
 | Code | When | Fix |
 |---|---|---|
 | `BASELINE_NOT_FOUND` | No baseline for this flavor and build number | Pass the live release's `--version-code` and `--flavor`, and point `baseline_store` at the store `build` used |
-| `PATCH_NO_CHANGES` | Nothing differs from the baseline | Save your edits; check the release you target |
+| `PATCH_NO_CHANGES` | No Dart or dependency changes; resource-only edits do not create a patch | Save your edits; check the release you target |
 | `PATCH_NATIVE_CHANGE` and other rejected changes | The change cannot be carried by a patch; see [What can be patched](architecture.md#what-can-be-patched) | Revert that part, or ship a store release |
 | `PATCH_BASELINE_INCOMPATIBLE` | The host was built with flutter_patcher 1.0 or with another Flutter version | Patch 1.0 hosts with flutter_patcher 1.0.0+1; select the release's Flutter with `--flutter-sdk` |
-| `WARNING: PATCH_NATIVE_ASSET_READER`, `PATCH_BACKGROUND_ENTRY`, `PATCH_RESOURCE_SIZE` | The patch is made, and part of it does not take effect everywhere | Read the warning; see [Troubleshooting](troubleshooting.md) |
+| `WARNING: PATCH_BACKGROUND_ENTRY` | The patch is made, and part of it does not take effect everywhere | Read the warning; see [Troubleshooting](troubleshooting.md) |
 
 **Non-interactive**: `patch` never prompts. On a runner without the key of a signed host it still exits with `0` and `"file":null`, so check `file` in scripts, or set `FLUTTER_PATCHER_KEYS`.
 

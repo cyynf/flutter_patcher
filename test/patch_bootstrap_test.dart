@@ -117,7 +117,7 @@ void main() {
     );
 
     test('skip only their digest checks, and only at the same range', () {
-      final bytes = envelope(assets: true, wrongEntryDigest: true);
+      final bytes = envelope(wrongEntryDigest: true);
       final checked = ranges(bytes);
       final profile = <String, int>{};
       final patch = parseAuthenticatedPatchBytes(
@@ -126,8 +126,8 @@ void main() {
         checkedEntries: checked,
         profile: profile,
       );
-      expect(patch.assets['a'], [1]);
-      expect(profile['native_checked_entries'], 2);
+      expect(patch.module.length, 120);
+      expect(profile['native_checked_entries'], 1);
       final module = checked['module.bc']!;
       expect(
         () => parseAuthenticatedPatchBytes(
@@ -195,7 +195,7 @@ void main() {
     final directory = Directory.systemTemp.createTempSync('boot-snapshot-');
     try {
       final file = File('${directory.path}/candidate.fptc');
-      file.writeAsBytesSync(envelope(assets: true));
+      file.writeAsBytesSync(envelope());
       final authenticated = file.readAsBytesSync();
       const codec = StandardMethodCodec();
       final encoded = codec.encodeSuccessEnvelope({
@@ -210,32 +210,22 @@ void main() {
         reply['envelopeBytes'] as Uint8List,
         fp,
       );
-      expect(patch.assets['a'], [1]);
+      expect(patch.module.length, 120);
       expect(patch.seq, 7);
     } finally {
       directory.deleteSync(recursive: true);
     }
   });
-  test(
-    'reads the real CLI STORED encoding and validates all resource digests',
-    () {
-      final bytes = envelope(assets: true, fonts: true);
-      final patch = verifyPatchBytes(
-        bytes,
-        fp,
-        sha256.convert(bytes).toString(),
-      );
-      expect(patch.assets['a'], [1]);
-      expect(patch.fonts['Family'], [
-        [2],
-      ]);
-      final changed = Uint8List.fromList(bytes)..[82] ^= 1;
-      expect(
-        () => verifyPatchBytes(changed, fp, sha256.convert(bytes).toString()),
-        throwsFormatException,
-      );
-    },
-  );
+  test('reads the real CLI STORED encoding and validates the code digest', () {
+    final bytes = envelope();
+    final patch = verifyPatchBytes(bytes, fp, sha256.convert(bytes).toString());
+    expect(patch.module.length, 120);
+    final changed = Uint8List.fromList(bytes)..[82] ^= 1;
+    expect(
+      () => verifyPatchBytes(changed, fp, sha256.convert(bytes).toString()),
+      throwsFormatException,
+    );
+  });
   test('rejects code that is not a bytecode module', () {
     final bytes = envelope(kind: 'libapp');
     expect(
@@ -249,86 +239,56 @@ void main() {
       ),
     );
   });
-  group('SO host', () {
-    Future<({List<String> calls, List<String> events})> boot(
-      Map<String, Object?> payload, {
-      bool failAssets = false,
-    }) async {
-      final calls = <String>[], events = <String>[];
-      Future<void> Function()? firstFrame;
-      final runner = BootRunner(
-        call: (method, args) async {
-          calls.add(method);
-          if (method == 'bootPayload') return payload;
-          expect(args['attempt'], 'token');
-          return true;
-        },
-        assets: (assets) async {
-          events.add('assets:${assets.keys.join(',')}');
-          if (failAssets) throw StateError('engine');
-        },
-        fonts: (fonts) async => events.add('fonts:${fonts.keys.join(',')}'),
-        observe: (_, success) => firstFrame = success,
-        log: (_) {},
-      );
-      await runner.run(
-        original: () => events.add('main'),
-        fingerprint: fp,
-        publicKeyBase64: 'key',
-      );
-      await firstFrame?.call();
-      return (calls: calls, events: events);
-    }
-
-    Map<String, Object?> payload(Object? assets, Object? fonts) => {
-      'attempt': 'token',
-      'transportVersion': 1,
-      'kind': 'libapp',
-      'assets': assets,
-      'fonts': fonts,
-    };
-
-    test('installs resources, then runs the running libapp main', () async {
-      final run = await boot(
-        payload(
-          {
-            'a': Uint8List.fromList([1]),
-          },
-          {
-            'F': [
-              Uint8List.fromList([2]),
-            ],
-          },
+  for (final kind in ['assets', 'fonts']) {
+    test('rejects $kind patches before loading a module', () {
+      expect(
+        () => parseAuthenticatedPatchBytes(
+          envelope(assets: kind == 'assets', fonts: kind == 'fonts'),
+          fp,
         ),
+        throwsFormatException,
       );
-      expect(run.events, ['assets:a', 'fonts:F', 'main']);
-      expect(run.calls, ['bootPayload', 'markBooting', 'reportBootSuccess']);
     });
-    test('a patch without resources only settles the attempt', () async {
-      final run = await boot(payload(<String, Object?>{}, <String, Object?>{}));
-      expect(run.events, ['main']);
-      expect(run.calls.last, 'reportBootSuccess');
-    });
-    test('a failed install is reported and main still runs once', () async {
-      final run = await boot(
-        payload({
-          'a': Uint8List.fromList([1]),
-        }, <String, Object?>{}),
-        failAssets: true,
-      );
-      expect(run.events, ['assets:a', 'main']);
-      expect(run.calls, contains('reportDartBootError'));
-      expect(run.calls, isNot(contains('reportBootSuccess')));
-    });
-    test('malformed resources fail before touching the engine', () async {
-      final run = await boot(
-        payload({
-          'a': [1],
-        }, <String, Object?>{}),
-      );
-      expect(run.events, ['main']);
-      expect(run.calls, ['bootPayload', 'reportDartBootError']);
-    });
+  }
+  group('SO host', () {
+    for (final resources in [false, true]) {
+      test('code-only boot rejects resources=$resources', () async {
+        final calls = <String>[], events = <String>[];
+        Future<void> Function()? firstFrame;
+        final runner = BootRunner(
+          call: (method, args) async {
+            calls.add(method);
+            if (method == 'bootPayload') {
+              return {
+                'attempt': 'token',
+                'transportVersion': 1,
+                'kind': 'libapp',
+                if (resources)
+                  'assets': {
+                    'a': Uint8List.fromList([1]),
+                  },
+              };
+            }
+            return true;
+          },
+          observe: (_, success) => firstFrame = success,
+          log: (_) {},
+        );
+        await runner.run(
+          original: () => events.add('main'),
+          fingerprint: fp,
+          publicKeyBase64: 'key',
+        );
+        await firstFrame?.call();
+        expect(events, ['main']);
+        expect(
+          calls,
+          resources
+              ? ['bootPayload', 'reportDartBootError']
+              : ['bootPayload', 'markBooting', 'reportBootSuccess'],
+        );
+      });
+    }
   });
   group('background engine', () {
     const key = 'package:app/bg.dart#callback';
@@ -349,9 +309,6 @@ void main() {
             events.add('load');
             return [1, 123, fp, 'lean', () {}, table];
           },
-          assets: (assets) async =>
-              events.add('assets:${assets.keys.join(',')}'),
-          fonts: (fonts) async => events.add('fonts:${fonts.keys.join(',')}'),
           observe: (_, _) => fail('A background boot observes nothing'),
           log: (_) {},
         ),
@@ -367,33 +324,23 @@ void main() {
       'a bytecode isolate loads the module and keeps its entry points',
       () async {
         final run = runner(
-          {'transportVersion': 1, 'envelopeBytes': envelope(assets: true)},
+          {'transportVersion': 1, 'envelopeBytes': envelope()},
           table: {key: callback},
         );
         await background(run.runner);
         // Only the offer: no attempt is started, settled or failed.
         expect(run.calls, ['backgroundPayload']);
-        expect(run.events, ['load', 'assets:a']);
+        expect(run.events, ['load']);
         expect(run.runner.entries, {key: callback});
       },
     );
-    test(
-      'an SO isolate receives the resources of the running libapp',
-      () async {
-        final run = runner({
-          'transportVersion': 1,
-          'kind': 'libapp',
-          'assets': {
-            'a': Uint8List.fromList([1]),
-          },
-          'fonts': <String, Object?>{},
-        });
-        await background(run.runner);
-        expect(run.calls, ['backgroundPayload']);
-        expect(run.events, ['assets:a']);
-        expect(run.runner.entries, isNull);
-      },
-    );
+    test('an SO isolate already runs the patched libapp', () async {
+      final run = runner({'transportVersion': 1, 'kind': 'libapp'});
+      await background(run.runner);
+      expect(run.calls, ['backgroundPayload']);
+      expect(run.events, isEmpty);
+      expect(run.runner.entries, isNull);
+    });
     test('no offer leaves the isolate as built', () async {
       final run = runner(null);
       await background(run.runner);
@@ -530,13 +477,12 @@ void main() {
     'bad-types',
     'async-error',
     'loader',
-    'font',
     'main',
   ]) {
     test(
       'startup $scenario has one main and attempt-bound reporting',
       () async {
-        final bytes = envelope(assets: true, fonts: scenario == 'font');
+        final bytes = envelope();
         final calls = <String>[], events = <String>[];
         final logs = <String>[];
         Future<void> Function()? firstFrame;
@@ -579,10 +525,7 @@ void main() {
             expect(args['attempt'], 'token');
             if (scenario == 'expired' && method == 'markBooting') return false;
             if (method == 'reportDartBootError') {
-              expect(
-                args['quarantine'],
-                scenario == 'font' || scenario == 'main',
-              );
+              expect(args['quarantine'], scenario == 'main');
             }
             return true;
           },
@@ -602,14 +545,6 @@ void main() {
               },
               null,
             ];
-          },
-          assets: (assets) async {
-            expect(assets['a'], [1]);
-            events.add('assets');
-          },
-          fonts: (_) async {
-            events.add('fonts');
-            throw StateError('font');
           },
           observe: (onError, success) {
             failure = onError;
@@ -638,7 +573,7 @@ void main() {
           lessThanOrEqualTo(1),
         );
         if (scenario == 'good') {
-          expect(events, ['load', 'assets', 'patched']);
+          expect(events, ['load', 'patched']);
           final timing = logs.singleWhere(
             (line) => line.startsWith('BYTECODE_BOOT_TIMING:'),
           );
@@ -646,13 +581,13 @@ void main() {
               .allMatches(timing)
               .map((m) => int.parse(m.group(1)!))
               .toList();
-          expect(values.length, 5);
+          expect(values.length, 4);
           expect(
-            values.take(4).fold<int>(0, (sum, value) => sum + value),
+            values.take(3).fold<int>(0, (sum, value) => sum + value),
             values.last,
           );
           expect(calls.last, 'reportBootSuccess');
-        } else if (scenario == 'main' || scenario == 'font') {
+        } else if (scenario == 'main') {
           expect(events, isNot(contains('original')));
           expect(calls.last, 'reportDartBootError');
         } else {

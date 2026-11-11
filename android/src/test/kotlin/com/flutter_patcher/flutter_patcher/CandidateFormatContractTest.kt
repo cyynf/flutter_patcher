@@ -35,17 +35,15 @@ class CandidateFormatContractTest {
     private fun envelope(format: CandidateFormat): ByteArray {
         val (kind, path) = if (format.loadsBeforeEngine) "libapp" to PatchArchive.CODE else "bytecode" to PatchArchive.MODULE
         val code = ByteArray(64) { it.toByte() }
-        val asset = byteArrayOf(4)
-        val font = byteArrayOf(5)
         val manifest = JSONObject()
             .put("format_version", PatchArchive.FORMAT).put("patch_seq", 7).put("fingerprint", fp)
             .put("code", row(path, code).put("kind", kind))
-            .put("assets", JSONArray().put(row("assets/a", asset).put("key", "a")))
-            .put("fonts", JSONArray().put(row("fonts/f.otf", font).put("family", "F")))
+            .put("assets", JSONArray())
+            .put("fonts", JSONArray())
         val zip = ByteArrayOutputStream().also { out ->
             ZipOutputStream(out).use { z ->
                 for ((name, bytes) in mapOf("patch_manifest.json" to manifest.toString().toByteArray(),
-                    path to code, "assets/a" to asset, "fonts/f.otf" to font)) {
+                    path to code)) {
                     z.putNextEntry(ZipEntry(name).apply {
                         method = ZipEntry.STORED
                         size = bytes.size.toLong()
@@ -106,7 +104,7 @@ class CandidateFormatContractTest {
             BytecodeFormat.install(root, meta, bytes, 7)
             assertEquals(PatchEnvelope.digest(bytes, 0, PatchEnvelope.HEADER), meta.getString("header_sha256"))
             val entries = BytecodeFormat.offer(root, meta, host)["entries"] as Map<*, *>
-            assertEquals(setOf("patch_manifest.json", "module.bc", "assets/a", "fonts/f.otf"), entries.keys)
+            assertEquals(setOf("patch_manifest.json", "module.bc"), entries.keys)
             assertEquals(listOf(64), entries.values.map { (it as List<*>)[1] }.filter { it == 64 })
             meta.put("header_sha256", "0".repeat(64))
             assertFailsWith<IllegalArgumentException> { BytecodeFormat.offer(root, meta, host) }

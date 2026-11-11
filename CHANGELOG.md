@@ -1,5 +1,10 @@
 > Chinese version: [CHANGELOG-zh.md](CHANGELOG-zh.md)
 
+## Unreleased
+
+- Bytecode patches select changed libraries and required callers/parts, reusing unchanged host libraries. Remove the automatic whole-package fallback. Rebuild older hosts whose interfaces do not support library reuse.
+- Remove asset and font patch packaging/loading and the `--assets` option. Resource changes require an app release. SO patches still contain the complete `libapp.so`.
+
 ## 1.1.0
 
 1.1.0 makes a patch one file. `patch` writes one file per host, the app gets

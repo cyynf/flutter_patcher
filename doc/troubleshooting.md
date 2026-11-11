@@ -345,12 +345,9 @@ Why each is refused is in [What can be patched](architecture.md#what-can-be-patc
 |---|---|---|
 | `PATCH_NATIVE_CHANGE` | Native code, a native plugin or a build hook changed, or a native dependency was added. A flutter_patcher version other than the host's counts as such a change | Revert the native change or ship a store release; patch with the flutter_patcher version the host was built with. Without a native change, see [Every file shows as changed](#every-file-shows-as-changed) |
 | `PATCH_PINNED_PACKAGE_CHANGED` | A package that must stay at its baseline version, because it has native code or native code depends on it, changed version | Pin it to the baseline version under `dependency_overrides`, as `message` shows |
-| `PATCH_FFI_UNSUPPORTED` | Code the patch carries calls native functions through `dart:ffi`; the patch carries the whole package, not only the changed lines | Move the FFI calls into a package the host keeps, such as a plugin, or ship a store release |
-| `PATCH_UNSAFE` | The bytecode compatibility check failed | Read the violations in `message` |
-| `PATCH_DYNAMIC_ICON` | Code builds a non-`const` `IconData` at run time | Use `const IconData(...)` or `Icons.*` |
-| `PATCH_ASSET_DELETE_UNSUPPORTED` | An asset of the app was deleted | Restore the asset, or ship a store release |
-| `PATCH_ENGINE_UNSUPPORTED` | The host's engine cannot install patch assets | Build and ship a new host |
-| `PATCH_NO_CHANGES` | Nothing differs from the baseline | Save your edits; check the release you target |
+| `PATCH_FFI_UNSUPPORTED` | Code the patch carries calls native functions through `dart:ffi`; compilation works at library granularity | Move the FFI calls into a package the host keeps, such as a plugin, or ship a store release |
+| `PATCH_UNSAFE` | The bytecode compatibility check failed | Read `message`; an old host missing library reuse interfaces needs a new host release |
+| `PATCH_NO_CHANGES` | No Dart or dependency changes; resource-only edits do not create a patch | Save your edits; check the release you target |
 
 ### `patch`: warnings
 
@@ -358,9 +355,7 @@ The patch is made; part of it does not take effect everywhere.
 
 | Code | When it appears | If you ignore it |
 |---|---|---|
-| `PATCH_NATIVE_ASSET_READER` | Native code reads an asset this patch changes | Native code still sees the app's original asset |
-| `PATCH_BACKGROUND_ENTRY` | An entry point runs in a separate Flutter engine, such as a background task | That entry point runs the app's original code and assets |
-| `PATCH_RESOURCE_SIZE` | The patch's assets exceed 16 MB in total | They stay in memory for the life of the process |
+| `PATCH_BACKGROUND_ENTRY` | An entry point runs in a separate Flutter engine, such as a background task | That entry point runs the app's original code |
 
 ### `patch`: other errors
 
@@ -372,7 +367,6 @@ The patch is made; part of it does not take effect everywhere.
 | `PATCH_CONFIG_INVALID` | An option is invalid, or the output directory exists | Correct what `message` names |
 | `PATCH_COMPILE_FAILED` | Dart compilation failed | Check that `flutter build` succeeds first |
 | `PATCH_SOURCE_INVALID`<br>`PACKAGE_INPUT_INVALID` | The source package layout is not supported, for example symbolic links | Change the layout as `message` says |
-| `PATCH_ASSET_INVALID`<br>`FONT_SUBSET_FAILED` | An asset or icon font cannot be processed | Fix the file `message` names |
 | `PATCH_TOOL_FAILED` | A compile or diff tool failed | Read the tool output in `message` |
 | `PATCH_PACKAGE_INVALID` | The patch cannot be packaged | Open an issue |
 | `PATCH_FAILED` | An unexpected error | Read `message` |
@@ -408,7 +402,7 @@ flutter_patcher 1.1.0 or newer never prints these codes. They come from flutter_
 | `PUBLISH_MANIFEST_CONFLICT` | `manifests/<hash>.json` kept changing while it was rewritten | Run `publish` again |
 | `PUBLISH_RETENTION_STALE`<br>`PUBLISH_OBJECT_CHANGED` | A cleanup plan is out of date | Run the dry run again |
 | `PUBLISH_TARGET_MISMATCH` | The patch does not belong to the release | Make the patch again for that release |
-| `PUBLISH_PATCH_INVALID` | The patch bundle is damaged or over 320 MB | Make the patch again with fewer assets |
+| `PUBLISH_PATCH_INVALID` | The patch bundle is damaged or over 320 MB | Check the compiled code size and regenerate the patch |
 | `PUBLISH_SIGNATURE_INVALID` | A signature does not verify against the baseline's patch key or `--root-public` | Publish with the keys the host was built with |
 | `TRUST_CONFIG_INVALID`<br>`TRUST_INVALID`<br>`TRUST_REPLAY`<br>`TRUST_SCOPE_CONFLICT`<br>`TRUST_CONFLICT`<br>`TRUST_OUTPUT_EXISTS`<br>`TRUST_FAILED` | `trust sign` or `trust publish` failed | Follow `message`; for `TRUST_REPLAY`, raise `revision` above the published one |
 

@@ -30,4 +30,13 @@ void main() {
       );
     }
   });
+
+  test('resource patches are no longer a CLI option', () {
+    for (final platform in ['android', 'ios']) {
+      expect(
+        () => parser().parse(['patch', platform, '--assets', 'assets/a.png']),
+        throwsFormatException,
+      );
+    }
+  });
 }

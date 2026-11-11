@@ -49,30 +49,25 @@ class _NoPatch implements Exception {
 
 /// What a boot payload asks of this process before the app's main.
 class _Boot {
-  _Boot(this.assets, this.fonts, {this.patch});
+  _Boot({this.patch});
 
   /// Present for a bytecode host: the module to load and its patched main.
   final VerifiedPatch? patch;
-  final Map<String, Uint8List> assets;
-  final Map<String, List<Uint8List>> fonts;
 }
 
 /// Startup transaction; dependencies allow testing without creating a binding.
 ///
 /// Both strategies share it. A bytecode host receives the authenticated patch
 /// envelope and runs the module's main. An SO host already runs the patched
-/// libapp.so, which native code verified and loaded; it receives only the
-/// patch's resources and then runs its own main.
+/// libapp.so, which native code verified and loaded; it runs its own main.
 ///
 /// [run] boots the app's isolate as one attempt; [background] boots an
-/// isolate a background engine starts, with the same code and resources but
+/// isolate a background engine starts, with the same code but
 /// no attempt.
 class BootRunner {
   BootRunner({
     required this.call,
     this.load,
-    required this.assets,
-    required this.fonts,
     required this.observe,
     required this.log,
     this.timeout = const Duration(seconds: 3),
@@ -81,8 +76,6 @@ class BootRunner {
 
   /// Null on an SO host, which never loads a module.
   final ModuleLoader? load;
-  final Future<void> Function(Map<String, Uint8List>) assets;
-  final Future<void> Function(Map<String, List<Uint8List>>) fonts;
   final void Function(
     Future<void> Function(Object) failure,
     Future<void> Function() success,
@@ -102,7 +95,7 @@ class BootRunner {
   }) async {
     final startup = Stopwatch()..start();
     String? attempt;
-    var failed = false, entered = false, mutated = false, libapp = false;
+    var failed = false, entered = false, libapp = false;
     Future<void> failure(Object error) async {
       log(error);
       if (failed || attempt == null) return;
@@ -111,7 +104,7 @@ class BootRunner {
         await call('reportDartBootError', {
           'attempt': attempt,
           'message': error.toString(),
-          'quarantine': entered || mutated,
+          'quarantine': entered,
         }).timeout(timeout);
       } catch (e) {
         log(e);
@@ -137,9 +130,7 @@ class BootRunner {
       attempt = row['attempt'] as String;
       libapp = row['kind'] == 'libapp';
       final profile = <String, int>{};
-      final boot = libapp
-          ? _resources(row)
-          : _bytecode(row, fingerprint, profile);
+      final boot = libapp ? _libapp(row) : _bytecode(row, fingerprint, profile);
       final verifiedUs = startup.elapsedMicroseconds;
       final started = await call('markBooting', {
         'attempt': attempt,
@@ -164,18 +155,12 @@ class BootRunner {
         bootRequire(!failed, 'Boot attempt already failed');
       }
       final loadedUs = startup.elapsedMicroseconds;
-      // The engine has no API to remove installed assets or registered fonts.
-      // After a partial failure the original app cannot safely run in this
-      // same isolate.
-      await _install(boot, () => mutated = true);
-      bootRequire(!failed, 'Boot attempt already failed');
       entered = true;
       startup.stop();
       log(
         '${libapp ? 'SO' : 'BYTECODE'}_BOOT_TIMING: payload_us=$payloadUs '
         'verify_us=${verifiedUs - payloadUs} '
-        'load_and_handshake_us=${loadedUs - verifiedUs} '
-        'resources_us=${startup.elapsedMicroseconds - loadedUs} '
+        'load_and_handshake_us=${startup.elapsedMicroseconds - verifiedUs} '
         'total_us=${startup.elapsedMicroseconds}',
       );
       if (patch != null) {
@@ -195,15 +180,11 @@ class BootRunner {
     } catch (error) {
       if (error is! _NoPatch) await failure(error);
       if (entered) return;
-      // An SO process already runs the patch's code and has no other main:
-      // it continues without the resources the failure left out, and the
-      // reported failure rolls the patch back for the next start.
-      if (mutated && !libapp) return;
     }
     await original();
   }
 
-  /// Boots an isolate a background engine starts: the code and resources
+  /// Boots an isolate a background engine starts: the code
   /// this process boots with, offered without an attempt, so the isolate
   /// neither starts, settles nor fails one. Leaves [entries] null when no
   /// module is in effect; failures are the caller's to log.
@@ -223,9 +204,8 @@ class BootRunner {
     );
     final row = reply as Map;
     final libapp = row['kind'] == 'libapp';
-    final boot = libapp ? _resources(row) : _bytecode(row, fingerprint, {});
+    final boot = libapp ? _libapp(row) : _bytecode(row, fingerprint, {});
     if (boot.patch != null) await _enter(boot.patch!, fingerprint);
-    await _install(boot, () {});
     log(
       'BACKGROUND_BOOT_TIMING: kind=${libapp ? 'libapp' : 'bytecode'} '
       'entries=${entries?.length ?? 0} '
@@ -269,18 +249,6 @@ class BootRunner {
     return slots[4] as FutureOr<void> Function();
   }
 
-  /// Hands [boot]'s resources to the engine; [mutating] precedes each change.
-  Future<void> _install(_Boot boot, void Function() mutating) async {
-    if (boot.assets.isNotEmpty) {
-      mutating();
-      await assets(boot.assets);
-    }
-    if (boot.fonts.isNotEmpty) {
-      mutating();
-      await fonts(boot.fonts);
-    }
-  }
-
   _Boot _bytecode(Map row, String fingerprint, Map<String, int> profile) {
     bootRequire(
       row['kind'] == null || row['kind'] == 'bytecode',
@@ -293,37 +261,19 @@ class BootRunner {
       checkedEntries: row['entries'],
       profile: profile,
     );
-    return _Boot(patch.assets, patch.fonts, patch: patch);
+    return _Boot(patch: patch);
   }
 
-  /// Native verified the signed envelope and each entry's digest.
-  _Boot _resources(Map row) {
-    final assets = row['assets'], fonts = row['fonts'];
-    bootRequire(
-      assets is Map &&
-          fonts is Map &&
-          assets.entries.every(
-            (e) => e.key is String && e.value is Uint8List,
-          ) &&
-          fonts.entries.every(
-            (e) =>
-                e.key is String &&
-                (e.key as String).isNotEmpty &&
-                e.value is List &&
-                (e.value as List).isNotEmpty &&
-                (e.value as List).every((v) => v is Uint8List),
-          ),
-      'Invalid boot resources',
-    );
-    return _Boot(
-      {
-        for (final e in (assets as Map).entries)
-          e.key as String: e.value as Uint8List,
-      },
-      {
-        for (final e in (fonts as Map).entries)
-          e.key as String: List<Uint8List>.from(e.value as List),
-      },
-    );
+  /// Native has already loaded the verified libapp.so. Empty maps from older
+  /// code-only hosts remain accepted; resource-bearing offers are rejected.
+  _Boot _libapp(Map row) {
+    for (final key in ['assets', 'fonts']) {
+      final value = row[key];
+      bootRequire(
+        value == null || value is Map && value.isEmpty,
+        'Resource patches are unsupported',
+      );
+    }
+    return _Boot();
   }
 }

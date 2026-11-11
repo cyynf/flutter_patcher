@@ -56,13 +56,14 @@ func zip(_ entries: [(String, Data)]) -> Data {
   return Data(local + central + end)
 }
 
-func archive(_ seq: Int64) -> Data {
+func archive(_ seq: Int64, resource: String? = nil) -> Data {
   let code = Data((0..<64).map { UInt8(($0 + Int(seq)) & 0xff) })
-  let manifest: [String: Any] = [
+  var manifest: [String: Any] = [
     "format_version": 2, "patch_seq": seq, "fingerprint": fp,
     "code": ["kind": "bytecode", "path": "module.bc", "length": code.count, "sha256": sha256Hex(code)],
     "assets": [], "fonts": [],
   ]
+  if let resource { manifest[resource] = [["path": "\(resource)/a"]] }
   let json = try! JSONSerialization.data(withJSONObject: manifest, options: [.sortedKeys])
   return zip([("patch_manifest.json", json), ("module.bc", code)])
 }
@@ -102,6 +103,14 @@ extension BytecodePatchManager {
 }
 func ok(_ result: [String: Any]) -> Bool { result["ok"] as? Bool == true }
 func error(_ result: [String: Any]) -> String? { result["error"] as? String }
+
+test("archive rejects asset and font patches") {
+  for resource in ["assets", "fonts"] {
+    let bytes = file(archive(7, resource: resource), 7)
+    let entries = try? PatchArchive.readBytecode(bytes, fingerprint: fp, seq: 7)
+    check(entries == nil, "Accepted \(resource) patch")
+  }
+}
 
 // MARK: shared vectors
 

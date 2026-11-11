@@ -63,7 +63,7 @@ await FlutterPatcher.init(
 
 - **未达到 `maxCrashCount`**：下次启动仍尝试该补丁。诊断为 `bytecodeBootFailed`，SO 宿主为 `soBootFailed`。
 - **达到 `maxCrashCount`**：补丁被停用，所以下次冷启动运行安装包自带的版本。补丁加入本机黑名单，所以 `applyPatch`、`applyPatchBytes`、`applyPatchFile` 再遇到同一个文件时返回 `blacklisted`。诊断为 `droppedCircuitBreaker`。
-- **补丁代码开始运行之后**（安装补丁的资源或执行补丁的 `main()`）抛出未捕获的 Dart 异常时，该补丁立即被停用并拉黑，与 `maxCrashCount` 无关，因为补丁的代码已经运行过，可能已改变 App 的状态，再次尝试并不安全。诊断为 `droppedCircuitBreaker`。
+- **补丁代码开始运行之后**（执行补丁的 `main()`）抛出未捕获的 Dart 异常时，该补丁立即被停用并拉黑，与 `maxCrashCount` 无关，因为补丁的代码已经运行过，可能已改变 App 的状态，再次尝试并不安全。诊断为 `droppedCircuitBreaker`。
 - **SO 宿主上**，补丁的 `libapp.so` 已经加载、其余文件却加载失败时，该补丁立即被拉黑，与 `maxCrashCount` 无关，因为已加载的代码运行过一次，不能再运行。
 
 ## 熔断之后怎么办

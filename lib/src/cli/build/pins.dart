@@ -12,8 +12,8 @@ import '../core.dart';
 /// edges: the host compiled those against exactly these copies, and a patch
 /// copy of a dependency would give the types crossing their APIs a second
 /// identity. Flutter is pinned by the same rule (every plugin depends on it)
-/// and explicitly. Everything else the application depends on is free: the
-/// whole tier renames it into the patch.
+/// and explicitly. Everything else the application depends on is free:
+/// its changed libraries may be selected for the patch.
 class PackagePins {
   /// Pinned package -> why: its own reason, or the dependency path from the
   /// package that pulled it in (`firebase_core -> http -> crypto`).

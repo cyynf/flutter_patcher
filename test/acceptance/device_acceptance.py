@@ -164,8 +164,6 @@ def prepare(args, repo, out):
             *(['--export-method', 'development'] if ios else []), '--out', out / 'release')
     built = json.loads((out / 'release/build.json').read_text())
 
-    if args.strategy == 'so':  # Bytecode patches replace Dart code only.
-        write(app / 'assets/msg.txt', 'asset-patched')
     for n, revision, crash in [(1, 'patched', False), (2, 'crash', True), (3, 'patched-3', False)]:
         main = source.replace("const revision = 'original';", f"const revision = '{revision}';")
         write(app / 'lib/main.dart', main.replace('const crash = false;', f'const crash = {str(crash).lower()};'))
@@ -396,7 +394,7 @@ def verify(args, out):
                     pass
             return {'error': 'no status'}
 
-        asset = 'asset-patched' if args.strategy == 'so' else 'asset-original'
+        asset = 'asset-original'
         original = dict(revision='original', asset='asset-original', version=None, diagnostic='noPatch')
         patched = dict(revision='patched', asset=asset, version='1', diagnostic='patched')
         name = (out / 'file-name.txt').read_text().strip()

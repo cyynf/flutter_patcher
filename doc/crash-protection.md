@@ -63,7 +63,7 @@ Each patch has its own count of consecutive failed starts, and a successful star
 
 - **Below `maxCrashCount`**: the next start tries the patch again. The diagnostic is `bytecodeBootFailed`, or `soBootFailed` on SO hosts.
 - **At `maxCrashCount`**: the patch is turned off, so the next cold start runs the installed version. The patch is blacklisted on this device, so `applyPatch`, `applyPatchBytes` and `applyPatchFile` return `blacklisted` for the same file. The diagnostic is `droppedCircuitBreaker`.
-- **Once the patch's code has started** (installing the patch's resources or running its `main()`), an uncaught Dart error turns the patch off and blacklists it at once, whatever `maxCrashCount` is, because the patch's code already ran and may have changed the app's state, so trying again is not safe. The diagnostic is `droppedCircuitBreaker`.
+- **Once the patch's code has started** (running its `main()`), an uncaught Dart error turns the patch off and blacklists it at once, whatever `maxCrashCount` is, because the patch's code already ran and may have changed the app's state, so trying again is not safe. The diagnostic is `droppedCircuitBreaker`.
 - **On an SO host**, a patch whose `libapp.so` loaded but whose remaining files then failed is blacklisted at once, whatever `maxCrashCount` is, because the loaded code already ran and must not run again.
 
 ## What to do when it trips

@@ -4,7 +4,7 @@ import 'dart:convert';
 import 'package:path/path.dart' as p;
 
 import '../core.dart';
-import '../patch/resources.dart';
+import '../baseline/resources.dart';
 import '../sdk/environment.dart';
 
 Future<Map<String, dynamic>> verifyBuildApk(

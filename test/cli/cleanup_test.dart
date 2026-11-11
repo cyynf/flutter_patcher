@@ -6,7 +6,7 @@ import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
 import 'package:flutter_patcher/src/cli/build/outputs.dart';
 import 'package:flutter_patcher/src/cli/core.dart';
-import 'package:flutter_patcher/src/cli/patch/resources.dart';
+import 'package:flutter_patcher/src/cli/baseline/resources.dart';
 
 class AaptFixture extends Commands {
   AaptFixture(super.cache);

@@ -9,7 +9,7 @@ import 'package:flutter_patcher/src/cli/core.dart';
 import 'package:flutter_patcher/src/cli/build/host_policy.dart';
 import 'package:flutter_patcher/src/cli/build/ios.dart';
 import 'package:flutter_patcher/src/cli/build/pipeline.dart';
-import 'package:flutter_patcher/src/cli/patch/resources.dart';
+import 'package:flutter_patcher/src/cli/baseline/resources.dart';
 
 import 'baseline_test.dart' as base;
 

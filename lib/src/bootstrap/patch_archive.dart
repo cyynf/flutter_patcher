@@ -123,17 +123,8 @@ Map<String, Uint8List> readPatchArchive(
 }
 
 class VerifiedPatch {
-  VerifiedPatch(
-    this.module,
-    this.assets,
-    this.fonts,
-    this.seq,
-    this.tier,
-    this.moduleId,
-  );
+  VerifiedPatch(this.module, this.seq, this.tier, this.moduleId);
   final Uint8List module;
-  final Map<String, Uint8List> assets;
-  final Map<String, List<Uint8List>> fonts;
   final int seq;
   final int moduleId;
   final String tier;
@@ -298,35 +289,12 @@ VerifiedPatch _parsePatch(
     'Bytecode magic',
   );
   bootRequire(
-    manifest['assets'] is List && manifest['fonts'] is List,
-    'Resource lists',
+    manifest['assets'] is List &&
+        (manifest['assets'] as List).isEmpty &&
+        manifest['fonts'] is List &&
+        (manifest['fonts'] as List).isEmpty,
+    'Resource patches are unsupported',
   );
-  final assets = <String, Uint8List>{}, fonts = <String, List<Uint8List>>{};
-  for (final value in manifest['assets'] as List) {
-    final Object? row = value;
-    bootRequire(
-      row is Map &&
-          row['key'] is String &&
-          row['path'] == 'assets/${row['key']}' &&
-          !assets.containsKey(row['key']),
-      'Asset key',
-    );
-    final record = row as Map;
-    assets[record['key'] as String] = entry(record, 'assets/');
-  }
-  for (final value in manifest['fonts'] as List) {
-    final Object? row = value;
-    bootRequire(
-      row is Map &&
-          row['family'] is String &&
-          (row['family'] as String).isNotEmpty,
-      'Font family',
-    );
-    final record = row as Map;
-    fonts
-        .putIfAbsent(record['family'] as String, () => [])
-        .add(entry(record, 'fonts/'));
-  }
   bootRequire(listed.length == entries.length, 'Unlisted ZIP entries');
   mark('manifest_and_entries_us');
   if (profile != null) {
@@ -335,12 +303,5 @@ VerifiedPatch _parsePatch(
     profile['entry_count'] = entries.length;
     profile['native_checked_entries'] = vouched;
   }
-  return VerifiedPatch(
-    module,
-    assets,
-    fonts,
-    seq,
-    tier as String,
-    moduleId as int,
-  );
+  return VerifiedPatch(module, seq, tier as String, moduleId as int);
 }

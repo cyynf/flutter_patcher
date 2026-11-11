@@ -96,10 +96,6 @@ ArgParser parser() {
     ..addOption(
       'fingerprint',
       help: 'Optional; must match the release. Required only for a legacy baseline without a release binding.',
-    )
-    ..addMultiOption(
-      'assets',
-      help: 'Asset keys to override; omitted selects changed assets.',
     );
   final build = environmentOptions()
     ..addOption(

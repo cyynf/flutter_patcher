@@ -40,8 +40,7 @@ enum PatchArchive {
       guard let assets = m["assets"] as? [Any], let fonts = m["fonts"] as? [Any] else {
         throw PatcherError("Resource lists")
       }
-      try assets.forEach { try check($0, "assets/") }
-      try fonts.forEach { try check($0, "fonts/") }
+      try require(assets.isEmpty && fonts.isEmpty, "Resource patches are unsupported")
       try require(listed == Set(files.keys), "Unlisted archive entries")
       return files.mapValues { [$0.lowerBound, $0.count] }
     }

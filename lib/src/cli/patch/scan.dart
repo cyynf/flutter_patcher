@@ -1,7 +1,6 @@
 import 'dart:io';
 
 import 'package:path/path.dart' as p;
-import 'package:yaml/yaml.dart';
 
 /// A place in a source file, `path:line` relative to its package.
 typedef SourceSite = ({String package, String file, int line});
@@ -41,97 +40,6 @@ class SourceScan {
         !parts.contains('git') &&
         !parts.contains('pub-cache') &&
         !parts.contains('.pub-cache');
-  }
-
-  static final _nativeFile = {
-    'android': RegExp(r'\.(kt|java)$'),
-    'ios': RegExp(r'\.(swift|m|mm|h)$'),
-  };
-  static final _platformDirs = {
-    'android': ['android'],
-    'ios': ['ios', 'darwin'],
-  };
-  static final _testDir = RegExp(
-    r'(^|/)(test|androidTest|RunnerTests|Tests?)/',
-  );
-  static final _assetLookup = RegExp(
-    r'getLookupKeyForAsset|lookupKeyForAsset|flutter_assets/',
-  );
-
-  /// Packages whose native code on [platform] opens Flutter assets itself,
-  /// through the platform's asset manager rather than the engine. Plugins
-  /// and the application are read; each package reports its first site.
-  Future<Map<String, SourceSite>> nativeAssetReaders(String platform) async {
-    final found = <String, SourceSite>{};
-    for (final name in roots.keys) {
-      if (_reserved.contains(name) || !(name == app || await _plugin(name))) {
-        continue;
-      }
-      final base = _dir(name);
-      for (final top in _platformDirs[platform]!) {
-        final dir = Directory(p.join(base.path, top));
-        if (!await dir.exists()) continue;
-        await for (final entity in dir.list(
-          recursive: true,
-          followLinks: false,
-        )) {
-          if (entity is! File ||
-              !_nativeFile[platform]!.hasMatch(entity.path)) {
-            continue;
-          }
-          final relative = p
-              .relative(entity.path, from: base.path)
-              .replaceAll('\\', '/');
-          if (_testDir.hasMatch(relative)) continue;
-          final line = _firstLine(await _read(entity), _assetLookup);
-          if (line != null) {
-            found[name] = (package: name, file: relative, line: line);
-            break;
-          }
-        }
-        if (found.containsKey(name)) break;
-      }
-    }
-    return found;
-  }
-
-  Future<bool> _plugin(String name) async {
-    final spec = File(p.join(_dir(name).path, 'pubspec.yaml'));
-    if (!await spec.exists()) return false;
-    final data = loadYaml(await spec.readAsString());
-    return data is Map &&
-        data['flutter'] is Map &&
-        (data['flutter'] as Map)['plugin'] != null;
-  }
-
-  /// Where own Dart code that imports one of [readers] names one of [assets]
-  /// in a string literal: the asset most likely reaches that native reader.
-  Future<Map<String, List<SourceSite>>> assetsPassedTo(
-    Iterable<String> readers,
-    Iterable<String> assets,
-  ) async {
-    final result = <String, List<SourceSite>>{};
-    if (readers.isEmpty || assets.isEmpty) return result;
-    final imports = RegExp(
-      "import\\s+['\"]package:(${readers.map(RegExp.escape).join('|')})/",
-    );
-    await _eachOwnDart((site, text) {
-      if (!imports.hasMatch(text)) return;
-      for (final key in assets) {
-        final line = _firstLine(
-          text,
-          RegExp("['\"]${RegExp.escape(key)}['\"]"),
-        );
-        if (line != null) {
-          result.putIfAbsent(key, () => []).add((
-            package: site.package,
-            file: site.file,
-            line: line,
-          ));
-        }
-      }
-    });
-    return result;
   }
 
   static final _entryPoint = RegExp(
@@ -202,11 +110,6 @@ class SourceScan {
     } on FileSystemException {
       return ''; // Not UTF-8 text: nothing a pattern here would match.
     }
-  }
-
-  static int? _firstLine(String text, RegExp pattern) {
-    final m = pattern.firstMatch(text);
-    return m == null ? null : _lineAt(text, m.start);
   }
 
   static int _lineAt(String text, int offset) =>

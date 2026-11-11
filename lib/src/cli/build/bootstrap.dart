@@ -5,8 +5,7 @@ import '../core.dart';
 /// The generated main of a host, trusting patch key [key] (`-` for none, and
 /// unsigned patch files): it runs [PatchBootstrap] before the app's own
 /// main. A bytecode host also retains the runtime that loads modules; an SO
-/// host ([modules] false) runs a patch as its whole libapp.so and only
-/// receives the patch's resources.
+/// host ([modules] false) already runs the verified patched libapp.so.
 ///
 /// It also declares what an engine with the patcher entry hook asks for
 /// every other entry point: `flutterPatcherEntry`, which boots a background

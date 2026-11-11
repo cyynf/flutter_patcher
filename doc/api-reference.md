@@ -374,7 +374,7 @@ Emitted to `onProgress` of [`applyPatch`](#applypatch) and by [`applyProgress`](
 |---|---|
 | `downloading` | Downloading the file; `applyPatch` only |
 | `verifying` | Verifying the payload digest and signature |
-| `finalizing` | Parsing the patch, installing its resources and committing |
+| `finalizing` | Parsing the patch and committing |
 
 ### `PatchTarget`
 

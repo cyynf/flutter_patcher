@@ -1,7 +1,6 @@
 import 'package:test/test.dart';
 import 'package:flutter_patcher/src/cli/core.dart';
 import 'package:flutter_patcher/src/cli/patch/pipeline.dart';
-import 'package:flutter_patcher/src/cli/patch/resources.dart';
 import 'package:flutter_patcher/src/cli/patch/rules.dart';
 
 Matcher rejects(String code) =>
@@ -170,22 +169,6 @@ void main() {
         returnsNormally,
       );
     });
-    test('both strategies need the engine asset channel for assets', () {
-      for (final strategy in ['bytecode', 'so']) {
-        final f = facts(strategy)..assets = ['a'];
-        expect(
-          () => PatchRules().check(PatchStage.resources, f),
-          rejects('PATCH_ENGINE_UNSUPPORTED'),
-        );
-        f.engineCapabilities = [assetOverlay];
-        PatchRules().check(PatchStage.resources, f);
-        f.deletedAssets = ['b'];
-        expect(
-          () => PatchRules().check(PatchStage.resources, f),
-          rejects('PATCH_ASSET_DELETE_UNSUPPORTED'),
-        );
-      }
-    });
     test('the final verdicts of a bytecode module', () {
       final f = facts()
         ..tier = 'whole'
@@ -198,10 +181,7 @@ void main() {
         'status': 'compiled',
         'dynamic_fonts': [{}],
       };
-      expect(
-        () => PatchRules().check(PatchStage.code, f),
-        rejects('PATCH_DYNAMIC_ICON'),
-      );
+      PatchRules().check(PatchStage.code, f);
       expect(
         () => PatchRules().check(PatchStage.result, facts('so')),
         rejects('PATCH_NO_CHANGES'),

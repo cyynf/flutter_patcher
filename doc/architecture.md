@@ -52,7 +52,7 @@ A Flutter release app compiles your Dart code to machine code. flutter_patcher c
 
 | | Bytecode (default) | SO |
 |---|---|---|
-| A patch contains | Your app's own packages compiled to bytecode, the code they use; with the whole tier, also the pure-Dart dependencies | A whole recompiled `libapp.so` |
+| A patch contains | Changed Dart libraries and the callers/parts required to use them; unchanged libraries reuse host code | A whole recompiled `libapp.so` |
 | How it runs | An interpreter in the engine runs all the code the patch carries; Flutter, plugins and the packages the patch does not carry still run as the app's machine code | At startup, Flutter loads the patch's `libapp.so` instead of the app's |
 | Platforms | Android, iOS | Android only |
 | Patch size | Small: your app's code, without Flutter and plugins | Large: about the size of `libapp.so` |
@@ -62,8 +62,10 @@ iOS hosts use bytecode because iOS does not allow loading downloaded machine cod
 
 `patch` chooses between two tiers of bytecode patch:
 
-- **lean** carries your app's own packages and is tried first;
-- **whole** also carries the pure-Dart dependencies, and is used when one of them changed or lean cannot carry the change.
+- **lean** carries selected application libraries;
+- **whole** also carries selected libraries from pure-Dart dependencies. Neither tier copies an entire package automatically.
+
+Selection uses baseline source hashes, closes callers and `part` files, and includes newly reached libraries absent from the host. The compiler works at library granularity, so required callers can be unchanged files. If an older host lacks the interface needed to reuse a library, rebuild and release the host; patching never falls back to copying every package. `patch.json` records `selected_sources` and `carried_packages`.
 
 ## Baselines: what a patch is compared with
 
@@ -147,22 +149,17 @@ failed start    past the threshold, returns to the app's built-in version
 |---|:---:|---|
 | Your Dart code | ✅ | |
 | Pure-Dart dependencies | ✅ | Carried by the whole tier in bytecode patches |
-| Added or changed assets (images, fonts, JSON…) | ✅ | The engine reads them from the patch; unchanged assets still come from the app |
-| Removed assets | ❌ | A patch can override assets but not remove them |
-| Asset changes on a host whose engine cannot install patch assets | ❌ | Hosts built with an older engine lack this; rebuild the host |
-| Native code, native plugins, build scripts | ❌ | A patch carries only Dart code and assets |
+| Assets (images, fonts, JSON…) | ❌ | Resources remain in the installed app; ship changes in a new release |
+| Native code, native plugins, build scripts | ❌ | A patch carries only Dart code |
 | Dependencies with native capabilities | ❌ | They are tied to native code and change only with a new release |
 | Packages that depend on those (bytecode) | ❌ | They stay in the host with the package they depend on |
-| FFI calls in a package the patch carries (bytecode) | ❌ | The patch carries the whole package, and the interpreter cannot make FFI calls; keep FFI calls in a package the host keeps, such as a plugin |
-| `IconData` built at run time (bytecode) | ❌ | A patch's icon font keeps only the constant icons it uses |
+| FFI calls in a package the patch carries (bytecode) | ❌ | The interpreter cannot make FFI calls; keep FFI calls in a package the host keeps, such as a plugin |
 | Flutter SDK version | ❌ | A patch is built with the same Flutter version as its host |
 
 `patch` checks these limits and fails with an error code when a change breaks one. In the following cases it builds the patch but warns, because part of the change does not take effect:
 
 | Warning | Case |
 |---|---|
-| `PATCH_NATIVE_ASSET_READER` | Native code that reads assets through the platform still sees the app's original copy of a changed asset |
 | `PATCH_BACKGROUND_ENTRY` | An entry point that runs in another Flutter engine, such as one started by a background task or a push callback, and that the patch does not carry, runs the app's original code |
-| `PATCH_RESOURCE_SIZE` | The patch's assets exceed 16 MB; they stay in memory for the life of the process |
 
 Every error and warning code is in [Troubleshooting](troubleshooting.md).

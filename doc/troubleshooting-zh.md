@@ -345,12 +345,9 @@ WARNING: BASELINE_STORE_LOCAL: this host's baseline is kept only in …; every p
 |---|---|---|
 | `PATCH_NATIVE_CHANGE` | 原生代码、原生插件或构建钩子有改动，或新增了原生依赖。使用与宿主不同版本的 flutter_patcher 也算这类改动 | 还原原生改动，或发布商店版本；用构建宿主时的 flutter_patcher 版本打补丁。没有改动原生代码时，见[所有文件都显示有改动](#所有文件都显示有改动) |
 | `PATCH_PINNED_PACKAGE_CHANGED` | 某个必须保持基线版本的包（它含有原生代码，或被原生代码依赖）改了版本 | 按 `message` 的提示，在 `dependency_overrides` 中把它固定回基线版本 |
-| `PATCH_FFI_UNSUPPORTED` | 补丁携带的代码通过 `dart:ffi` 调用原生函数；补丁携带的是整个包，而不只是改动的那几行 | 把 FFI 调用移到保留在宿主中的包里（例如插件），或发布商店版本 |
-| `PATCH_UNSAFE` | 字节码兼容性检查未通过 | 阅读 `message` 中列出的违规项 |
-| `PATCH_DYNAMIC_ICON` | 代码在运行时构造非 `const` 的 `IconData` | 使用 `const IconData(...)` 或 `Icons.*` |
-| `PATCH_ASSET_DELETE_UNSUPPORTED` | 删除了 App 的某个资源 | 恢复该资源，或发布商店版本 |
-| `PATCH_ENGINE_UNSUPPORTED` | 宿主的引擎不能安装补丁资源 | 构建并发布新的宿主 |
-| `PATCH_NO_CHANGES` | 与基线相比没有任何改动 | 保存你的修改；确认目标版本 |
+| `PATCH_FFI_UNSUPPORTED` | 补丁携带的代码通过 `dart:ffi` 调用原生函数；编译以库为单位 | 把 FFI 调用移到保留在宿主中的包里（例如插件），或发布商店版本 |
+| `PATCH_UNSAFE` | 字节码兼容性检查未通过 | 阅读 `message`；旧宿主缺少库复用接口时需重新构建并发布宿主 |
+| `PATCH_NO_CHANGES` | 没有 Dart 或依赖改动；仅资源改动不生成补丁 | 保存你的修改；确认目标版本 |
 
 ### `patch`：警告
 
@@ -358,9 +355,7 @@ WARNING: BASELINE_STORE_LOCAL: this host's baseline is kept only in …; every p
 
 | 警告 | 出现条件 | 忽略会怎样 |
 |---|---|---|
-| `PATCH_NATIVE_ASSET_READER` | 原生代码读取了这个补丁改动的资源 | 原生代码读到的仍是安装包中的原始资源 |
-| `PATCH_BACKGROUND_ENTRY` | 某个入口运行在独立的 Flutter 引擎中，例如后台任务 | 该入口运行安装包中的原始代码和资源 |
-| `PATCH_RESOURCE_SIZE` | 补丁中的资源合计超过 16 MB | 它们在进程存活期间一直占用内存 |
+| `PATCH_BACKGROUND_ENTRY` | 某个入口运行在独立的 Flutter 引擎中，例如后台任务 | 该入口运行安装包中的原始代码 |
 
 ### `patch`：其他错误
 
@@ -372,7 +367,6 @@ WARNING: BASELINE_STORE_LOCAL: this host's baseline is kept only in …; every p
 | `PATCH_CONFIG_INVALID` | 选项无效，或输出目录已存在 | 按 `message` 指出的内容修正 |
 | `PATCH_COMPILE_FAILED` | Dart 编译失败 | 先确认 `flutter build` 能成功 |
 | `PATCH_SOURCE_INVALID`<br>`PACKAGE_INPUT_INVALID` | 不支持的源码包结构，例如符号链接 | 按 `message` 的说明调整结构 |
-| `PATCH_ASSET_INVALID`<br>`FONT_SUBSET_FAILED` | 某个资源或图标字体无法处理 | 修复 `message` 指出的文件 |
 | `PATCH_TOOL_FAILED` | 编译或对比工具失败 | 阅读 `message` 中的工具输出 |
 | `PATCH_PACKAGE_INVALID` | 补丁无法打包 | 提交 issue |
 | `PATCH_FAILED` | 意外错误 | 阅读 `message` |
@@ -408,7 +402,7 @@ flutter_patcher 1.1.0 或更新版本不会输出这些错误码。它们来自 
 | `PUBLISH_MANIFEST_CONFLICT` | 重写 `manifests/<hash>.json` 时它一直在变化 | 重新运行 `publish` |
 | `PUBLISH_RETENTION_STALE`<br>`PUBLISH_OBJECT_CHANGED` | 清理计划已过期 | 重新运行 dry run |
 | `PUBLISH_TARGET_MISMATCH` | 补丁不属于该版本 | 为该版本重新生成补丁 |
-| `PUBLISH_PATCH_INVALID` | 补丁包已损坏或超过 320 MB | 减少资源后重新生成补丁 |
+| `PUBLISH_PATCH_INVALID` | 补丁包已损坏或超过 320 MB | 检查编译代码体积并重新生成补丁 |
 | `PUBLISH_SIGNATURE_INVALID` | 签名无法用基线中的补丁密钥或 `--root-public` 验证 | 用构建宿主时的密钥发布 |
 | `TRUST_CONFIG_INVALID`<br>`TRUST_INVALID`<br>`TRUST_REPLAY`<br>`TRUST_SCOPE_CONFLICT`<br>`TRUST_CONFLICT`<br>`TRUST_OUTPUT_EXISTS`<br>`TRUST_FAILED` | `trust sign` 或 `trust publish` 失败 | 按 `message` 处理；`TRUST_REPLAY` 时把 `revision` 提高到已发布的值之上 |
 
