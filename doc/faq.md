@@ -10,11 +10,11 @@ You are deciding whether flutter_patcher fits your app, or you have one specific
 
 ### Can a patch add or change images and fonts?
 
-No. Patches contain code only. Images, fonts and other assets continue to come from the installed app; change them in a new app release. Code-only patches also cannot add glyphs missing from a font subset shipped in the host.
+Yes. Patches carry changed assets and fonts declared in pubspec, independently of Dart library selection. The host must be rebuilt with this version to advertise resource patch support. Unchanged resources stay in the host; changed font families keep every face, and constant Material icons retain host glyphs as well as new glyphs.
 
 ### Can a patch add a new package?
 
-Yes, if the package is pure Dart. A package with native code, a platform plugin or an FFI package fails with `PATCH_NATIVE_CHANGE`, because a patch carries only Dart code. See [What can be patched](architecture.md#what-can-be-patched).
+Yes, if the package is pure Dart. A package with native code, a platform plugin or an FFI package fails with `PATCH_NATIVE_CHANGE`, because a patch carries Dart code and resources. See [What can be patched](architecture.md#what-can-be-patched).
 
 ### Can a patch take effect without restarting the app?
 
@@ -22,7 +22,7 @@ No. A patch runs from the next cold start, because the running process keeps the
 
 ### Does a patch contain the whole app?
 
-A bytecode patch carries changed libraries plus their required callers and parts. Unchanged libraries, Flutter and plugins stay in the app. It does not carry assets or fonts. An SO patch carries the whole recompiled `libapp.so`, several megabytes. A patch file is at most 320 MiB, and the built-in downloader must finish within 2 minutes. See [Two patch strategies](architecture.md#two-patch-strategies).
+A bytecode patch carries changed libraries plus their required callers and parts. Unchanged libraries, Flutter and plugins stay in the app. Resource and font differences are added independently. An SO patch carries the whole recompiled `libapp.so`, several megabytes. A patch file is at most 320 MiB, and the built-in downloader must finish within 2 minutes. See [Two patch strategies](architecture.md#two-patch-strategies).
 
 ### Does the bytecode strategy slow the app down?
 

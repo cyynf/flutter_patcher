@@ -63,9 +63,15 @@ func archive(_ seq: Int64, resource: String? = nil) -> Data {
     "code": ["kind": "bytecode", "path": "module.bc", "length": code.count, "sha256": sha256Hex(code)],
     "assets": [], "fonts": [],
   ]
-  if let resource { manifest[resource] = [["path": "\(resource)/a"]] }
+  let resourceBytes = Data([4, 5, 6])
+  if let resource {
+    manifest[resource] = [["path": "\(resource)/a", "length": resourceBytes.count,
+      "sha256": sha256Hex(resourceBytes), resource == "assets" ? "key" : "family": "a"]]
+  }
   let json = try! JSONSerialization.data(withJSONObject: manifest, options: [.sortedKeys])
-  return zip([("patch_manifest.json", json), ("module.bc", code)])
+  var entries = [("patch_manifest.json", json), ("module.bc", code)]
+  if let resource { entries.append(("\(resource)/a", resourceBytes)) }
+  return zip(entries)
 }
 
 func file(_ payload: Data, _ seq: Int64, key: Curve25519.Signing.PrivateKey? = nil, fingerprint: String = fp) -> Data {
@@ -104,11 +110,16 @@ extension BytecodePatchManager {
 func ok(_ result: [String: Any]) -> Bool { result["ok"] as? Bool == true }
 func error(_ result: [String: Any]) -> String? { result["error"] as? String }
 
-test("archive rejects asset and font patches") {
+test("archive verifies asset and font entries") {
   for resource in ["assets", "fonts"] {
     let bytes = file(archive(7, resource: resource), 7)
-    let entries = try? PatchArchive.readBytecode(bytes, fingerprint: fp, seq: 7)
-    check(entries == nil, "Accepted \(resource) patch")
+    let entries = try PatchArchive.readBytecode(bytes, fingerprint: fp, seq: 7)
+    check(entries.count == 3, "Resource entry not checked")
+    let range = entries["\(resource)/a"]!
+    var corrupt = bytes
+    corrupt[range[0]] ^= 1
+    check((try? PatchArchive.readBytecode(corrupt, fingerprint: fp, seq: 7)) == nil,
+      "Corrupt resource accepted")
   }
 }
 

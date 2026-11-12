@@ -1,8 +1,10 @@
 import '../core.dart';
+import 'resources.dart';
 import 'scan.dart';
 
-/// Engine support for booting background isolates through the patch entry.
-const isolateEntry = 'isolate_entry';
+/// Resources above this many bytes draw a warning: the engine holds a
+/// patch's assets in memory for the life of the process.
+const resourceWarnBytes = 16 * 1024 * 1024;
 
 /// When a rule's facts are known. The pipeline checks each stage as soon as it
 /// reaches it, so a rejection never waits for a later, slower step.
@@ -15,6 +17,9 @@ enum PatchStage {
 
   /// The code the patch ships.
   code,
+
+  /// The resources the patch ships.
+  resources,
 
   /// Entry points that run in background isolates.
   background,
@@ -58,8 +63,17 @@ class PatchFacts {
   /// What the host's engine offers (its release's capabilities).
   List<String> engineCapabilities = const [];
 
+  /// Asset keys the patch carries, and those the release has but it lacks.
+  List<String> assets = const [], deletedAssets = const [];
+
   /// Everything the patch changes; empty means there is nothing to ship.
   final List<String> changed = [];
+
+  /// Changed asset keys, without the merged manifest.
+  List<String> get changedAssets => [
+    for (final key in assets)
+      if (key != 'AssetManifest.bin') key,
+  ];
 
   /// Whether the patch changes Dart code, its own or a dependency's.
   bool get codeChanged => changed.any(
@@ -69,10 +83,20 @@ class PatchFacts {
         c == 'libapp.so',
   );
 
+  /// Packages whose native code opens Flutter assets itself.
+  Map<String, SourceSite> nativeAssetReaders = const {};
+
+  /// Changed assets own code names next to an import of such a package.
+  Map<String, List<SourceSite>> assetsPassed = const {};
+
   /// Own entry points native code may start in a separate engine, and the
   /// calls that register them.
   List<(String, SourceSite)> backgroundEntries = const [];
   List<SourceSite> backgroundRegistrations = const [];
+
+  /// Bytes of resources the patch carries, and its largest few.
+  int resourceBytes = 0;
+  List<(String, int)> largestResources = const [];
 }
 
 String _list(Iterable<String> items, {int limit = 5}) {
@@ -167,6 +191,42 @@ final patchRules = <PatchRule>[
     ],
     strategies: const {'bytecode'},
   ),
+  // Patch assets lie in front of the host's; they cannot remove one.
+  PatchRule(
+    'PATCH_ASSET_DELETE_UNSUPPORTED',
+    PatchStage.resources,
+    (f) => [
+      for (final key in f.deletedAssets)
+        'Resource deletion requires a new host: $key',
+    ],
+  ),
+  // The engine installs patch assets in front of the app bundle; under an
+  // engine without that capability every boot of this patch would fail.
+  PatchRule(
+    'PATCH_ENGINE_UNSUPPORTED',
+    PatchStage.resources,
+    (f) => [
+      if (f.assets.isNotEmpty && !f.engineCapabilities.contains(assetOverlay))
+        'Asset changes need a host whose engine installs patch assets '
+            '($assetOverlay); rebuild the host with the current '
+            'engine, or ship the assets in a host release',
+    ],
+  ),
+  // Warnings: the patch ships, but part of it may not take effect.
+  // A native reader asks the platform's asset manager, which knows only the
+  // installed app's assets; patch assets live in the engine.
+  PatchRule('PATCH_NATIVE_ASSET_READER', PatchStage.resources, (f) {
+    final keys = f.changedAssets;
+    if (keys.isEmpty || f.nativeAssetReaders.isEmpty) return const [];
+    return [
+      'Native code of ${_list(f.nativeAssetReaders.entries.map((e) => '${e.key} (${siteText(e.value)})'))} '
+          'reads Flutter assets through the platform, which sees the release\'s '
+          'copies, not this patch\'s. Changed assets: ${_list(keys)}',
+      for (final e in f.assetsPassed.entries)
+        '${e.key} is named in ${_list(e.value.map(siteText))} beside an import '
+            'of a native asset reader; that use keeps the release\'s copy',
+    ];
+  }, reject: false),
   // Without the engine's entry hook only main runs the generated entry that
   // installs a patch. With it every engine boots with the patch, and a
   // bytecode patch runs its version of each entry point it carries.
@@ -196,16 +256,36 @@ final patchRules = <PatchRule>[
       for (final site in f.backgroundRegistrations) siteText(site),
     ];
     if (sites.isEmpty) return const [];
-    if (f.strategy == 'so' || !f.codeChanged) return const [];
+    if (f.strategy == 'so') {
+      if (f.changedAssets.isEmpty) return const [];
+      return [
+        'Entry points started in a separate engine run this patch\'s code but '
+            'the release\'s assets: ${_list(sites)}',
+      ];
+    }
+    if (!f.codeChanged && f.changedAssets.isEmpty) return const [];
     return [
-      'Entry points started in a separate engine run the release\'s code: '
-          '${_list(sites)}',
+      'Entry points started in a separate engine run the release\'s code and '
+          'assets, not this patch: ${_list(sites)}',
     ];
   }, reject: false),
   PatchRule(
+    'PATCH_RESOURCE_SIZE',
+    PatchStage.resources,
+    (f) => [
+      if (f.resourceBytes > resourceWarnBytes)
+        'This patch carries ${(f.resourceBytes / 1048576).toStringAsFixed(1)} MB '
+            'of resources, held in memory for the life of the process; largest: '
+            '${_list(f.largestResources.map((r) => '${r.$1} (${(r.$2 / 1048576).toStringAsFixed(1)} MB)'), limit: 3)}',
+    ],
+    reject: false,
+  ),
+  PatchRule(
     'PATCH_NO_CHANGES',
     PatchStage.result,
-    (f) => [if (f.changed.isEmpty) 'No Dart or dependency changes detected'],
+    (f) => [
+      if (f.changed.isEmpty) 'No Dart, dependency or resource changes detected',
+    ],
   ),
 ];
 

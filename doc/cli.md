@@ -151,8 +151,25 @@ dart run flutter_patcher build ios       # Apple Silicon Mac only
 | `--target <file>` | Entry file | `lib/main.dart` |
 | `--out <dir>` | Output directory; it must not exist, so that a build never overwrites another | `.dart_tool/flutter_patcher/releases/<timestamp>/` |
 | `--export-method <method>` | iOS only, passed to `flutter build ipa`: `app-store`, `ad-hoc`, `development` or `enterprise` | `app-store` |
+| `-v`, `--verbose` | Stream build-tool output live to stderr and enable Flutter verbose logs | Off |
+| `--build-name <version>` | Forwarded Flutter display version | pubspec version |
+| `--build-number <n>` | Alias for `--version-code`; both must agree | Same as `--version-code` |
+| `--export-options-plist <file>` | iOS export configuration; conflicts with `--export-method` | Unset |
+| `--split-debug-info <dir>` | Debug symbol output directory | Flutter default |
+| `--[no-]tree-shake-icons` | Forward icon font subsetting choice | Flutter default |
 | `--baseline-store <uri>` | Saves the baseline here | `baseline_store` in `flutter_patcher.yaml` |
 | `--host-policy <file>` | A host policy you wrote; see [Custom Host Policy](advanced.md#custom-host-policy) | Derived from the project |
+
+Common Flutter options can be passed directly; place other options after `--` to forward individual arguments to `flutter build apk` or `flutter build ipa`:
+
+```bash
+dart run flutter_patcher build ios --build-name 2.0.0 --build-number 2070 --export-options-plist "ios/Export Options.plist"
+dart run flutter_patcher build android --build-name 2.0.0 -v -- --no-tree-shake-icons
+```
+
+`-v` is accepted directly by `build`, without a `--` separator: `build ios -v`, `build -v android` and `build ios --verbose` all work. `build ios -- -v` also enables live output. Diagnostics go to stderr while stdout remains the JSON result; verbosity is not saved as a baseline build input.
+
+Plist and debug-symbol paths resolve relative to the invoking directory and remain valid in the isolated build copy. Options overriding the release mode, generated entry, ABI or compiler inputs are rejected. `--dart-define`, `--dart-define-from-file` and `--obfuscate` are not supported. Version constants and replayable options are recorded in the baseline for patches and SO rebuilds.
 
 **Output**: the output directory holds `app-release.apk` or `app-release.ipa` and the full report, `build.json`. stdout holds one JSON line:
 
@@ -191,12 +208,15 @@ dart run flutter_patcher patch android --withdraw
 |---|---|---|
 | `--version-code <n>` | The release to patch | The number after `+` in `version` in `pubspec.yaml` |
 | `--flavor <name>` | The release's flavor | `default` |
-| `--withdraw` | Writes a withdrawal file: devices that apply it delete their patch and run the installed version from the next cold start. It cannot be combined with `--target` (`USAGE_ERROR`) | Off |
+| `--withdraw` | Writes a withdrawal file: devices that apply it delete their patch and run the installed version from the next cold start. It cannot be combined with `--target` or `--assets` (`USAGE_ERROR`) | Off |
+| `--assets <key>` | Override only these asset keys; repeatable | All changed assets |
 | `--target <file>` | Entry file; it must be the one `build` used | `lib/main.dart` |
 | `--out <dir>` | Output directory; it must not exist | `.dart_tool/flutter_patcher/patches/<timestamp>/` |
 | `--baseline-store <uri>` | Reads the baseline here | `baseline_store` in `flutter_patcher.yaml` |
 
 Strategy, channel and patch key come from the baseline, so `patch` has no options for them.
+
+Resources use a separate `flutter build bundle`, which adds build time without expanding selected Dart libraries. With no resource or font differences, no such data is shipped or installed. Resource-only bytecode patches reuse host main. The `resources` report gives asset/font counts and bytes. Resource patches require `resource_patches: 1` in the baseline; rebuild hosts lacking it.
 
 **Output**: the output directory holds `patch.json` (the report), `patch.draft` (the patch before sealing; not with `--withdraw`) and the patch file, named as in [Patch files](#patch-files). stdout holds one JSON line:
 
@@ -216,7 +236,7 @@ Strategy, channel and patch key come from the baseline, so `patch` has no option
 | Code | When | Fix |
 |---|---|---|
 | `BASELINE_NOT_FOUND` | No baseline for this flavor and build number | Pass the live release's `--version-code` and `--flavor`, and point `baseline_store` at the store `build` used |
-| `PATCH_NO_CHANGES` | No Dart or dependency changes; resource-only edits do not create a patch | Save your edits; check the release you target |
+| `PATCH_NO_CHANGES` | No Dart, dependency, resource or font changes | Save your edits; check the release you target |
 | `PATCH_NATIVE_CHANGE` and other rejected changes | The change cannot be carried by a patch; see [What can be patched](architecture.md#what-can-be-patched) | Revert that part, or ship a store release |
 | `PATCH_BASELINE_INCOMPATIBLE` | The host was built with flutter_patcher 1.0 or with another Flutter version | Patch 1.0 hosts with flutter_patcher 1.0.0+1; select the release's Flutter with `--flutter-sdk` |
 | `WARNING: PATCH_BACKGROUND_ENTRY` | The patch is made, and part of it does not take effect everywhere | Read the warning; see [Troubleshooting](troubleshooting.md) |

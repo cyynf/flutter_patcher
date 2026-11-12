@@ -2,6 +2,8 @@ import 'dart:async';
 
 import 'package:flutter/foundation.dart';
 
+import 'bootstrap/assets.dart';
+import 'bootstrap/fonts.dart';
 import 'bootstrap/transport.dart';
 import 'bootstrap/runner.dart';
 
@@ -35,6 +37,8 @@ class PatchBootstrap {
     boot: () => _background ??= (_runner = BootRunner(
       call: BootstrapTransport().call,
       load: loadModule,
+      assets: patcherInstallAssets,
+      fonts: patcherLoadFonts,
       log: _log,
       observe: (_, _) {},
     )).background(fingerprint: fingerprint, publicKeyBase64: publicKeyBase64),
@@ -54,6 +58,8 @@ class PatchBootstrap {
     final runner = _runner = BootRunner(
       call: BootstrapTransport().call,
       load: loadModule,
+      assets: patcherInstallAssets,
+      fonts: patcherLoadFonts,
       log: _log,
       observe: (failure, onSuccess) {
         final oldPlatform = PlatformDispatcher.instance.onError;

@@ -374,7 +374,7 @@ switch (result.error) {
 |---|---|
 | `downloading` | 下载文件，仅 `applyPatch` 有 |
 | `verifying` | 校验 payload 摘要和签名 |
-| `finalizing` | 解析补丁并提交 |
+| `finalizing` | 解析补丁、准备资源并提交 |
 
 ### `PatchTarget`
 

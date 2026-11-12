@@ -92,12 +92,22 @@ ArgParser parser() {
     )
     ..addOption('project')
     ..addOption('target', defaultsTo: 'lib/main.dart')
+    ..addMultiOption(
+      'assets',
+      help: 'Asset keys to override; omitted selects changed assets.',
+    )
     ..addOption('out')
     ..addOption(
       'fingerprint',
       help: 'Optional; must match the release. Required only for a legacy baseline without a release binding.',
     );
   final build = environmentOptions()
+    ..addFlag(
+      'verbose',
+      abbr: 'v',
+      negatable: false,
+      help: 'Show build tool output live on stderr and enable Flutter verbose logs.',
+    )
     ..addOption(
       'host-policy',
       help:
@@ -120,6 +130,27 @@ ArgParser parser() {
     )
     ..addOption('target', defaultsTo: 'lib/main.dart')
     ..addOption('out', help: 'New APK/IPA and report output directory.')
+    ..addOption(
+      'build-name',
+      help: 'Forward to Flutter: application version name.',
+    )
+    ..addOption(
+      'build-number',
+      help: 'Flutter alias for --version-code; must agree when both are set.',
+    )
+    ..addOption(
+      'export-options-plist',
+      help: 'iOS export plist; relative to the invoking directory.',
+    )
+    ..addOption(
+      'split-debug-info',
+      help: 'Forward to Flutter: debugging symbols output directory.',
+    )
+    ..addFlag(
+      'tree-shake-icons',
+      defaultsTo: true,
+      help: 'Forward Flutter icon font subsetting choice.',
+    )
     ..addOption(
       'export-method',
       allowed: iosExportMethods,
@@ -174,7 +205,7 @@ Future<int> runCli(List<String> arguments) async {
     }
     if (parsed['help'] == true || parsed.command == null) {
       stdout.writeln(
-        'flutter_patcher init [--project <dir>]\nflutter_patcher keys export|import|status [options]\nflutter_patcher doctor [options]\nflutter_patcher interface [options]\nflutter_patcher baseline [options]\nflutter_patcher build android|ios [options]\nflutter_patcher patch android|ios [--withdraw] [options]\nflutter_patcher publish [--patch <dir>] [--withdraw] [--seq <n>] [--yes] [options]\nflutter_patcher serve [--port <port>] [--project <dir>]\n\n${args.commands['doctor']!.usage}',
+        'flutter_patcher init [--project <dir>]\nflutter_patcher keys export|import|status [options]\nflutter_patcher doctor [options]\nflutter_patcher interface [options]\nflutter_patcher baseline [options]\nflutter_patcher build android|ios [options] [-- <flutter build options>]\nflutter_patcher patch android|ios [--withdraw] [options]\nflutter_patcher publish [--patch <dir>] [--withdraw] [--seq <n>] [--yes] [options]\nflutter_patcher serve [--port <port>] [--project <dir>]\n\n${args.commands['doctor']!.usage}',
       );
       return 0;
     }

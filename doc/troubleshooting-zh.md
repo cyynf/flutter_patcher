@@ -347,7 +347,10 @@ WARNING: BASELINE_STORE_LOCAL: this host's baseline is kept only in …; every p
 | `PATCH_PINNED_PACKAGE_CHANGED` | 某个必须保持基线版本的包（它含有原生代码，或被原生代码依赖）改了版本 | 按 `message` 的提示，在 `dependency_overrides` 中把它固定回基线版本 |
 | `PATCH_FFI_UNSUPPORTED` | 补丁携带的代码通过 `dart:ffi` 调用原生函数；编译以库为单位 | 把 FFI 调用移到保留在宿主中的包里（例如插件），或发布商店版本 |
 | `PATCH_UNSAFE` | 字节码兼容性检查未通过 | 阅读 `message`；旧宿主缺少库复用接口时需重新构建并发布宿主 |
-| `PATCH_NO_CHANGES` | 没有 Dart 或依赖改动；仅资源改动不生成补丁 | 保存你的修改；确认目标版本 |
+| `PATCH_ENGINE_UNSUPPORTED` | 宿主未声明资源补丁能力，或引擎缺少资源覆盖能力 | 用当前版本重建宿主及基线 |
+| `PATCH_ASSET_DELETE_UNSUPPORTED` | 删除了宿主中的资源 | 恢复资源或发布新安装包 |
+| `PATCH_ASSET_INVALID` / `FONT_SUBSET_FAILED` | 资源或字体输入无效 | 修复错误信息指出的文件 |
+| `PATCH_NO_CHANGES` | 没有 Dart、依赖、资源或字体改动 | 保存你的修改；确认目标版本 |
 
 ### `patch`：警告
 
@@ -355,6 +358,8 @@ WARNING: BASELINE_STORE_LOCAL: this host's baseline is kept only in …; every p
 
 | 警告 | 出现条件 | 忽略会怎样 |
 |---|---|---|
+| `PATCH_RESOURCE_SIZE` | 资源总量超过 16 MiB | 资源加载后常驻内存，考虑缩小资源 |
+| `PATCH_NATIVE_ASSET_READER` | 原生插件直接读取 Flutter 资源 | 原生路径仍读取安装包中的资源 |
 | `PATCH_BACKGROUND_ENTRY` | 某个入口运行在独立的 Flutter 引擎中，例如后台任务 | 该入口运行安装包中的原始代码 |
 
 ### `patch`：其他错误

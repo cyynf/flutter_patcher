@@ -151,8 +151,25 @@ dart run flutter_patcher build ios       # 只能在 Apple Silicon Mac 上运行
 | `--target <file>` | 入口文件 | `lib/main.dart` |
 | `--out <dir>` | 输出目录；必须不存在，这样一次构建不会覆盖另一次 | `.dart_tool/flutter_patcher/releases/<timestamp>/` |
 | `--export-method <method>` | 仅 iOS，传给 `flutter build ipa`：`app-store`、`ad-hoc`、`development` 或 `enterprise` | `app-store` |
+| `-v`, `--verbose` | 实时显示构建工具输出，并启用 Flutter 详细日志；日志写到 stderr | 关闭 |
+| `--build-name <version>` | 传给 Flutter 的展示版本号 | pubspec 中的版本号 |
+| `--build-number <n>` | `--version-code` 的别名；同时传入时必须一致 | 同 `--version-code` |
+| `--export-options-plist <file>` | iOS 导出配置，与 `--export-method` 互斥 | 不指定 |
+| `--split-debug-info <dir>` | 调试符号输出目录 | Flutter 默认值 |
+| `--[no-]tree-shake-icons` | 透传图标字体裁剪选项 | Flutter 默认值 |
 | `--baseline-store <uri>` | 把基线保存到这里 | `flutter_patcher.yaml` 中的 `baseline_store` |
 | `--host-policy <file>` | 自己写的宿主策略；见[自定义宿主策略](advanced-zh.md#自定义宿主策略) | 根据项目生成 |
+
+常用 Flutter 参数可以直接传入；其他参数放在 `--` 后面，逐项传给 `flutter build apk` 或 `flutter build ipa`：
+
+```bash
+dart run flutter_patcher build ios --build-name 2.0.0 --build-number 2070 --export-options-plist "ios/Export Options.plist"
+dart run flutter_patcher build android --build-name 2.0.0 -v -- --no-tree-shake-icons
+```
+
+`-v` 可以直接跟在 `build` 命令后，无需放到 `--` 后。支持的写法包括 `build ios -v`、`build -v android` 和 `build ios --verbose`；`build ios -- -v` 也可使用。详细日志实时写入 stderr，stdout 仍保留 JSON 结果；详细日志选项不保存为基线构建参数。
+
+plist 与调试符号路径相对于调用目录解析，进入隔离构建目录后仍使用同一路径。与补丁所需的 release 模式、生成入口、ABI、编译参数冲突的选项会被拒绝；`--dart-define`、`--dart-define-from-file` 和 `--obfuscate` 不支持。构建版本常量和可重放选项保存到基线，补丁复用这些值，SO 重建也沿用这些选项。
 
 **输出**：输出目录中有 `app-release.apk` 或 `app-release.ipa`，以及完整报告 `build.json`。stdout 输出一行 JSON：
 
@@ -191,12 +208,15 @@ dart run flutter_patcher patch android --withdraw
 |---|---|---|
 | `--version-code <n>` | 要打补丁的版本 | `pubspec.yaml` 中 `version` 的 `+` 之后的数字 |
 | `--flavor <name>` | 该版本的 flavor | `default` |
-| `--withdraw` | 写出撤回文件：应用它的设备删除自己的补丁，从下次冷启动起运行安装包自带的版本。不能与 `--target` 同时使用（`USAGE_ERROR`） | 关闭 |
+| `--withdraw` | 写出撤回文件：应用它的设备删除自己的补丁，从下次冷启动起运行安装包自带的版本。不能与 `--target` 或 `--assets` 同时使用（`USAGE_ERROR`） | 关闭 |
+| `--assets <key>` | 只覆盖指定资源 key；可重复 | 自动选择所有变化的资源 |
 | `--target <file>` | 入口文件；必须与 `build` 使用的相同 | `lib/main.dart` |
 | `--out <dir>` | 输出目录；必须不存在 | `.dart_tool/flutter_patcher/patches/<timestamp>/` |
 | `--baseline-store <uri>` | 从这里读取基线 | `flutter_patcher.yaml` 中的 `baseline_store` |
 
 策略、渠道和补丁密钥来自基线，所以 `patch` 没有对应的选项。
+
+资源构建独立执行一次 `flutter build bundle`，因此增加构建耗时，但不会扩大选中的 Dart 库。没有资源或字体差异时，补丁不携带这些数据，启动也跳过对应加载；只有资源变化时，字节码补丁复用宿主 main。报告 `resources` 列出资源条目数、字体条目数和字节数。资源补丁需要基线中的 `resource_patches: 1`，缺少时先重建宿主。
 
 **输出**：输出目录中有 `patch.json`（报告）、`patch.draft`（封装之前的补丁；`--withdraw` 时没有）和补丁文件，命名规则见[补丁文件](#补丁文件)。stdout 输出一行 JSON：
 
@@ -216,7 +236,7 @@ dart run flutter_patcher patch android --withdraw
 | 代码 | 出现条件 | 消除方法 |
 |---|---|---|
 | `BASELINE_NOT_FOUND` | 这个 flavor 和构建号没有基线 | 传入线上版本的 `--version-code` 和 `--flavor`，并让 `baseline_store` 指向 `build` 使用的存储 |
-| `PATCH_NO_CHANGES` | 没有 Dart 或依赖改动；仅资源改动不生成补丁 | 保存你的修改；确认目标版本 |
+| `PATCH_NO_CHANGES` | 没有 Dart、依赖、资源或字体改动 | 保存你的修改；确认目标版本 |
 | `PATCH_NATIVE_CHANGE` 等拒绝改动的错误码 | 补丁无法携带这处改动；见[能更新什么](architecture-zh.md#能更新什么) | 还原这部分改动，或发布商店版本 |
 | `PATCH_BASELINE_INCOMPATIBLE` | 宿主是用 flutter_patcher 1.0 或另一个 Flutter 版本构建的 | 1.0 的宿主用 flutter_patcher 1.0.0+1 打补丁；用 `--flutter-sdk` 指定该版本的 Flutter |
 | `WARNING: PATCH_BACKGROUND_ENTRY` | 补丁已生成，但其中一部分不是在所有地方都生效 | 阅读警告内容；见[错误码与排障](troubleshooting-zh.md) |

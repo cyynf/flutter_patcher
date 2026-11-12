@@ -9,6 +9,7 @@ import '../build/defines.dart';
 import '../build/pins.dart';
 import '../build/virtual_paths.dart';
 import 'pipeline.dart';
+import 'hooks.dart';
 import 'rules.dart';
 import 'sources.dart';
 
@@ -184,14 +185,16 @@ class BytecodeProducer implements CodeProducer {
           'dependency changes',
     );
     baselineSources = hashes.keys.cast<String>().toSet();
-    selected = await selectPatchSources(
-      config: run.config,
-      packages: freePackages ?? own,
-      changed: changed,
-      baselineSources: baselineSources,
-      entry: 'package:$app/${run.req.target.substring(4)}',
-    );
-    own = {for (final uri in selected) Uri.parse(uri).pathSegments.first};
+    selected = !facts.codeChanged
+        ? <String>{}
+        : await selectPatchSources(
+            config: run.config,
+            packages: freePackages ?? own,
+            changed: changed,
+            baselineSources: baselineSources,
+            entry: 'package:$app/${run.req.target.substring(4)}',
+          );
+    own = {app, for (final uri in selected) Uri.parse(uri).pathSegments.first};
     tier = own.any((name) => name != app) ? 'whole' : 'lean';
   }
 
@@ -225,7 +228,7 @@ class BytecodeProducer implements CodeProducer {
     final names = m.names;
     await File(p.join(m.dir, run.app, '__patch_entry.dart')).writeAsString(
       patchEntry(
-        names[run.app]!,
+        selected.isEmpty ? run.app : names[run.app]!,
         req.target.substring(4),
         req.moduleId,
         run.resolved.fingerprint,
@@ -247,7 +250,7 @@ class BytecodeProducer implements CodeProducer {
       // Lets the whole tier drop Flutter's code for other platforms.
       'target_os': req.platform,
       if (usage.contains('environment_defines'))
-        'environment_defines': releaseDefines(req.flavor),
+        'environment_defines': recordedReleaseDefines(run.receipt, req.flavor),
       'emit': emit,
       // Tools call this module identity 'seq'; it is not patch_seq.
       'seq': req.moduleId,
@@ -294,11 +297,10 @@ class BytecodeProducer implements CodeProducer {
     // Tools write their report to stdout; CFE incidental diagnostics stay in the log.
     await File(output).writeAsString(result.stdout);
     final report = await readObject(output);
-    // Legacy tools still report font analysis, which code-only patches ignore.
+    // Keep the large host glyph inventory out of the report.
     run.reports.add({
       for (final entry in report.entries)
-        if (!const {'host_icons', 'fonts', 'dynamic_fonts'}.contains(entry.key))
-          entry.key: entry.value,
+        if (entry.key != 'host_icons') entry.key: entry.value,
     });
     require(
       report['status'] != 'compile_failed',
@@ -312,15 +314,60 @@ class BytecodeProducer implements CodeProducer {
 
   @override
   Future<PatchCode> produce() async {
-    run.rules.check(PatchStage.result, run.facts);
     final work = run.work;
     final outcome = await _compile(true);
+    // The resource build uses the original sources and never changes the
+    // selected module libraries or retries with a larger module.
+    run.facts.tier = tier;
+    run.rules.check(PatchStage.code, run.facts);
+    run.phase = 'resources';
+    final bundle = p.join(work, 'flutter_assets');
+    await withBundleMetadata(
+      run.project,
+      flavor: run.req.flavor,
+      platform: run.req.platform,
+      buildNumber: run.req.minBuild,
+      buildName:
+          (run.receipt['flutter_build'] as Map?)?['build_name'] as String?,
+      action: () => withoutBuildHooks(
+        run.config,
+        p.join(work, 'no-hooks'),
+        () => _p.commands.run(_p.sdk.host.flutterLauncher(_p.managed), [
+          '--suppress-analytics',
+          'build',
+          'bundle',
+          '--release',
+          '--no-pub',
+          '--no-tree-shake-icons',
+          '--target-platform',
+          run.req.platform == 'ios' ? 'ios' : 'android-arm64',
+          '--target',
+          run.req.target,
+          '--asset-dir',
+          bundle,
+          '--build-number',
+          run.req.minBuild.toString(),
+        ], cwd: run.project),
+        flavor: run.req.flavor,
+        platform: run.req.platform,
+      ),
+    );
     run.facts
       ..tier = tier
       ..report = outcome;
     return PatchCode(
       kind: 'bytecode',
       file: p.join(work, 'module.bc'),
+      bundle: bundle,
+      fonts: (payload) => payload.collectFonts(
+        outcome['fonts'] as List? ?? [],
+        hostIcons: outcome['host_icons'] as List?,
+        hostFonts: (run.receipt['resources'] as Map?)?['fonts'] as List?,
+        wholeFamilies:
+            (outcome['dynamic_fonts'] as List? ?? const []).isNotEmpty,
+        hostFiles:
+            (run.receipt['resources'] as Map?)?['files'] as Map? ?? const {},
+      ),
       metadata: {'tier': tier},
       report: {
         'tier': tier,

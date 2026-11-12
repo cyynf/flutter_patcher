@@ -183,6 +183,7 @@ class AssetCodec {
 Map<String, dynamic> resourceReceipt(Archive archive) {
   final files = <String, dynamic>{};
   Map<String, dynamic> manifest = {};
+  List? fonts;
   for (final f in archive) {
     if (!f.isFile || !f.name.startsWith('assets/flutter_assets/')) continue;
     final key = f.name.substring('assets/flutter_assets/'.length);
@@ -201,6 +202,9 @@ Map<String, dynamic> resourceReceipt(Archive archive) {
       'length': bytes.length,
     };
     if (key == 'AssetManifest.bin') manifest = AssetCodec.decode(bytes);
+    if (key == 'FontManifest.json') {
+      fonts = jsonDecode(utf8.decode(bytes)) as List;
+    }
   }
-  return {'schema': 1, 'files': files, 'manifest': manifest};
+  return {'schema': 1, 'files': files, 'manifest': manifest, 'fonts': ?fonts};
 }

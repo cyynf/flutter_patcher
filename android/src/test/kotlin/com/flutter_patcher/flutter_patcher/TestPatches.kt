@@ -31,15 +31,17 @@ internal object TestPatches {
     fun archive(seq: Long, kind: String = "bytecode", fingerprint: String = FP): ByteArray {
         val path = if (kind == "libapp") PatchArchive.CODE else PatchArchive.MODULE
         val code = ByteArray(64) { (it + seq).toByte() }
+        val asset = byteArrayOf(4)
+        val font = byteArrayOf(5)
         val manifest = JSONObject()
             .put("format_version", PatchArchive.FORMAT).put("patch_seq", seq).put("fingerprint", fingerprint)
             .put("code", row(path, code).put("kind", kind))
-            .put("assets", JSONArray())
-            .put("fonts", JSONArray())
+            .put("assets", JSONArray().put(row("assets/a", asset).put("key", "a")))
+            .put("fonts", JSONArray().put(row("fonts/f.otf", font).put("family", "F")))
         return ByteArrayOutputStream().also { out ->
             ZipOutputStream(out).use { z ->
                 for ((name, bytes) in mapOf("patch_manifest.json" to manifest.toString().toByteArray(),
-                    path to code)) {
+                    path to code, "assets/a" to asset, "fonts/f.otf" to font)) {
                     z.putNextEntry(ZipEntry(name).apply {
                         method = ZipEntry.STORED
                         size = bytes.size.toLong()

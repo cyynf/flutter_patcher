@@ -149,8 +149,9 @@ failed start    past the threshold, returns to the app's built-in version
 |---|:---:|---|
 | Your Dart code | ✅ | |
 | Pure-Dart dependencies | ✅ | Carried by the whole tier in bytecode patches |
-| Assets (images, fonts, JSON…) | ❌ | Resources remain in the installed app; ship changes in a new release |
-| Native code, native plugins, build scripts | ❌ | A patch carries only Dart code |
+| Assets (images, fonts, JSON…) | ✅ | Changed assets and fonts are loaded before patched main; unchanged resources reuse the host |
+| Removed assets | ❌ | Resource overlays cannot delete host assets |
+| Native code, native plugins, build scripts | ❌ | A patch carries Dart code and resources |
 | Dependencies with native capabilities | ❌ | They are tied to native code and change only with a new release |
 | Packages that depend on those (bytecode) | ❌ | They stay in the host with the package they depend on |
 | FFI calls in a package the patch carries (bytecode) | ❌ | The interpreter cannot make FFI calls; keep FFI calls in a package the host keeps, such as a plugin |

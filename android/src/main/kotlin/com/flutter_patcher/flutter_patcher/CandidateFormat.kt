@@ -95,7 +95,7 @@ internal object BytecodeFormat : CandidateFormat {
 /**
  * The envelope's archive unpacked once, at install, into a directory named
  * by its digest. Each boot checks the files against digests recorded then:
- * the libapp.so before the engine maps it.
+ * the libapp.so before the engine maps it, each resource as it is offered.
  */
 internal object LibappFormat : CandidateFormat {
     override val strategy = "so"
@@ -142,9 +142,13 @@ internal object LibappFormat : CandidateFormat {
 
     override fun offer(root: File, meta: JSONObject, host: HostTrustConfig): Map<String, Any?> {
         val manifest = manifest(root, meta)
-        require(manifest.getJSONArray("assets").length() == 0 && manifest.getJSONArray("fonts").length() == 0) {
-            "Resource patches are unsupported"
+        fun read(row: JSONObject): ByteArray {
+            val bytes = File(dir(root, meta), row.getString("path")).readBytes()
+            require(PatchEnvelope.digest(bytes) == row.getString("sha256")) { "Unpacked resource changed" }
+            return bytes
         }
-        return mapOf("kind" to "libapp")
+        return mapOf("kind" to "libapp",
+            "assets" to PatchArchive.rows(manifest.getJSONArray("assets")).associate { it.getString("key") to read(it) },
+            "fonts" to PatchArchive.rows(manifest.getJSONArray("fonts")).groupBy({ it.getString("family") }, { read(it) }))
     }
 }

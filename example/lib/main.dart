@@ -3,7 +3,7 @@ import 'package:flutter_patcher/flutter_patcher.dart';
 
 import 'status_card.dart';
 
-/// Change this text, then run
+/// Change this text or assets/patch_demo.png, then run
 /// `dart run flutter_patcher patch android`: a cold start after the update
 /// shows the change.
 const message = 'Hello from the installed app';

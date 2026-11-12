@@ -39,8 +39,8 @@ Changes to native code or to the Flutter version still need a store release.
 |---|:---:|---|
 | Your Dart code | ✅ | |
 | Pure-Dart dependencies, such as `dio` or `intl` | ✅ | |
-| Images, fonts and other assets | ❌ | Ship changes in a new app release |
-| Native code, platform plugins and FFI packages, such as `mmkv` or `isar` | ❌ | A patch carries only Dart code |
+| Images, fonts and other assets | ✅ | Changed resources only; requires a host built with resource patch support |
+| Native code, platform plugins and FFI packages, such as `mmkv` or `isar` | ❌ | A patch carries Dart code and resources |
 | The Flutter SDK version | ❌ | A patch is built with the Flutter version that built its release |
 
 `patch` checks these limits and fails with an error code when a change breaks one. The full list is in [How It Works](doc/architecture.md#what-can-be-patched).

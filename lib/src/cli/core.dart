@@ -279,7 +279,8 @@ Future<void> rejectLinks(String path) async {
 
 class Commands {
   final Map<String, String> environment;
-  Commands(String cache)
+  final bool verbose;
+  Commands(String cache, {this.verbose = false})
     : environment = {
         ...Platform.environment,
         'PUB_CACHE': p.join(cache, 'pub-cache'),
@@ -341,6 +342,11 @@ class Commands {
     String? logPath,
   }) async {
     final started = DateTime.now();
+    if (verbose) {
+      stderr.writeln(
+        '[flutter_patcher] ${p.basename(executable)} ${_traceArgs(args)}',
+      );
+    }
     Process process;
     try {
       // Windows batch launchers (flutter.bat, aws.cmd) only start through the
@@ -366,10 +372,13 @@ class Commands {
     // A step log is written as output arrives, so a hung or timed-out step
     // still leaves evidence.
     final log = logPath == null ? null : File(logPath).openWrite();
-    Stream<List<int>> tee(Stream<List<int>> stream) => log == null
+    Stream<List<int>> tee(Stream<List<int>> stream) => log == null && !verbose
         ? stream
         : stream.map((chunk) {
-            log.add(chunk);
+            log?.add(chunk);
+            // Keep stdout reserved for the CLI JSON report. Forward raw bytes
+            // so UTF-8 sequences split between chunks remain intact.
+            if (verbose) stderr.add(chunk);
             return chunk;
           });
     final output = collectOutput(tee(process.stdout));

@@ -91,6 +91,7 @@ Future<String> assembleIpa(
       '--export-method',
       request.exportMethod!,
     ],
+    ...request.flutterOptions.arguments,
     ...extra,
   ], cwd: project);
   final ipas = await exported.exists()

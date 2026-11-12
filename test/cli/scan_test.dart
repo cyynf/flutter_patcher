@@ -2,6 +2,7 @@ import 'dart:io';
 
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
+import 'package:flutter_patcher/src/cli/patch/resources.dart';
 import 'package:flutter_patcher/src/cli/patch/rules.dart';
 import 'package:flutter_patcher/src/cli/patch/scan.dart';
 
@@ -79,6 +80,23 @@ void notAppCode() {}
   test('own code is the app and its local packages', () {
     expect(scan.own, ['app', 'local']);
   });
+  test(
+    'native asset readers: main sources of plugins on that platform',
+    () async {
+      final android = await scan.nativeAssetReaders('android');
+      expect(android.keys, ['video']);
+      expect(siteText(android['video']!), 'video/android/src/main/V.kt:1');
+      expect((await scan.nativeAssetReaders('ios')).keys, isEmpty);
+    },
+  );
+  test('an asset named beside an import of a reader', () async {
+    final passed = await scan.assetsPassedTo(
+      ['video'],
+      ['assets/intro.mp4', 'assets/other.png'],
+    );
+    expect(passed.keys, ['assets/intro.mp4']);
+    expect(siteText(passed['assets/intro.mp4']!.single), 'app/lib/main.dart:4');
+  });
   test('background entry points of own code, not main', () async {
     final found = await scan.backgroundEntries();
     expect(found.entries.map((e) => '${e.$1} ${siteText(e.$2)}'), [
@@ -93,7 +111,32 @@ void notAppCode() {}
         PatchFacts(strategy, 'android', 'work');
     final site = (package: 'app', file: 'lib/main.dart', line: 6);
 
-    test('an SO background engine runs its patched code', () {
+    test('warn without rejecting, only when they apply', () {
+      final rules = PatchRules();
+      final f = facts('bytecode')
+        ..assets = ['assets/intro.mp4', 'AssetManifest.bin']
+        ..engineCapabilities = [assetOverlay]
+        ..nativeAssetReaders = {'video': site}
+        ..assetsPassed = {
+          'assets/intro.mp4': [site],
+        }
+        ..backgroundEntries = [('callbackDispatcher', site)]
+        ..resourceBytes = resourceWarnBytes + 1
+        ..largestResources = [('assets/intro.mp4', resourceWarnBytes + 1)];
+      rules.check(PatchStage.resources, f);
+      rules.check(PatchStage.background, f);
+      expect(rules.warnings.map((w) => w['code']), [
+        'PATCH_NATIVE_ASSET_READER',
+        'PATCH_NATIVE_ASSET_READER',
+        'PATCH_RESOURCE_SIZE',
+        'PATCH_BACKGROUND_ENTRY',
+      ]);
+      expect(rules.warnings[1]['message'], contains('app/lib/main.dart:6'));
+      final quiet = PatchRules();
+      quiet.check(PatchStage.resources, facts('bytecode'));
+      expect(quiet.warnings, isEmpty);
+    });
+    test('an SO patch only loses assets in a background engine', () {
       final codeOnly = PatchRules();
       codeOnly.check(
         PatchStage.background,
@@ -109,15 +152,31 @@ void notAppCode() {}
           ..changed.add('package:app/main.dart')
           ..backgroundEntries = [('callbackDispatcher', site)],
       );
-      expect(bytecode.warnings.single['message'], contains("release's code"));
+      expect(
+        bytecode.warnings.single['message'],
+        contains("release's code and assets"),
+      );
+      final assets = PatchRules();
+      assets.check(
+        PatchStage.background,
+        facts('so')
+          ..assets = ['a.png']
+          ..engineCapabilities = [assetOverlay]
+          ..backgroundEntries = [('callbackDispatcher', site)],
+      );
+      expect(
+        assets.warnings.single['message'],
+        contains("this patch's code but the release's assets"),
+      );
     });
     test('an engine with the entry hook boots background engines too', () {
-      const hooked = [isolateEntry];
+      const hooked = [assetOverlay, isolateEntry];
       final so = PatchRules();
       so.check(
         PatchStage.background,
         facts('so')
           ..changed.add('libapp.so')
+          ..assets = ['a.png']
           ..engineCapabilities = hooked
           ..backgroundEntries = [('callbackDispatcher', site)],
       );

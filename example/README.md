@@ -27,7 +27,7 @@ You need:
    dart run flutter_patcher serve   # Offers the newest patch at 127.0.0.1:8686 to the phone over adb reverse
    ```
 
-3. Change something: edit `message` in `lib/main.dart`. Images and fonts remain those shipped in the app. Then make the patch:
+3. Change something: edit `message` in `lib/main.dart`, or replace `assets/patch_demo.png`. Resource changes require a host built with this version. Then make the patch:
 
    ```bash
    dart run flutter_patcher patch android

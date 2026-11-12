@@ -170,6 +170,15 @@ void main() {
         File(p.join(root.path, 'module.bc')).lengthSync(),
         greaterThan(120),
       );
+      // Resource-only patches reuse host main; no application library is emitted.
+      await File(p.join(module, 'app/__patch_entry.dart'))
+          .writeAsString(patchEntry('app', 'main.dart', 9, 'a' * 64, 'lean'));
+      final resourceOnly =
+          jsonDecode(await run(['compile-patch', '--request', request])) as Map;
+      expect(resourceOnly['status'], 'compiled', reason: '$resourceOnly');
+      expect(resourceOnly['emitted_libraries'], [
+        'package:patch.9.app/__patch_entry.dart',
+      ]);
     },
     skip: tools == null || platform == null
         ? 'Set FLUTTER_PATCHER_TEST_TOOLS and FLUTTER_PATCHER_TEST_PLATFORM'

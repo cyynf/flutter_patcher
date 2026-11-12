@@ -347,7 +347,10 @@ Why each is refused is in [What can be patched](architecture.md#what-can-be-patc
 | `PATCH_PINNED_PACKAGE_CHANGED` | A package that must stay at its baseline version, because it has native code or native code depends on it, changed version | Pin it to the baseline version under `dependency_overrides`, as `message` shows |
 | `PATCH_FFI_UNSUPPORTED` | Code the patch carries calls native functions through `dart:ffi`; compilation works at library granularity | Move the FFI calls into a package the host keeps, such as a plugin, or ship a store release |
 | `PATCH_UNSAFE` | The bytecode compatibility check failed | Read `message`; an old host missing library reuse interfaces needs a new host release |
-| `PATCH_NO_CHANGES` | No Dart or dependency changes; resource-only edits do not create a patch | Save your edits; check the release you target |
+| `PATCH_ENGINE_UNSUPPORTED` | The host lacks resource patch or engine overlay capability | Rebuild the host and baseline with this version |
+| `PATCH_ASSET_DELETE_UNSUPPORTED` | An asset from the host was deleted | Restore it or ship a new app release |
+| `PATCH_ASSET_INVALID` / `FONT_SUBSET_FAILED` | Invalid resource or font input | Fix the file named in the error |
+| `PATCH_NO_CHANGES` | No Dart, dependency, resource or font changes | Save your edits; check the release you target |
 
 ### `patch`: warnings
 
@@ -355,6 +358,8 @@ The patch is made; part of it does not take effect everywhere.
 
 | Code | When it appears | If you ignore it |
 |---|---|---|
+| `PATCH_RESOURCE_SIZE` | Resources exceed 16 MiB | Installed resources stay in memory; consider reducing them |
+| `PATCH_NATIVE_ASSET_READER` | Native plugins read Flutter assets directly | Native readers still see the installed app bundle |
 | `PATCH_BACKGROUND_ENTRY` | An entry point runs in a separate Flutter engine, such as a background task | That entry point runs the app's original code |
 
 ### `patch`: other errors

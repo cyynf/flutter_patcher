@@ -3,7 +3,9 @@
 ## Unreleased
 
 - Bytecode patches select changed libraries and required callers/parts, reusing unchanged host libraries. Remove the automatic whole-package fallback. Rebuild older hosts whose interfaces do not support library reuse.
-- Remove asset and font patch packaging/loading and the `--assets` option. Resource changes require an app release. SO patches still contain the complete `libapp.so`.
+- Restore resource/font diff packaging, verification, boot loading and `--assets`, independently of code library selection. Resource patches require a rebuilt capable host. Changed font families retain all faces. SO patches still contain the complete `libapp.so`.
+- Forward `--build-name`, `--build-number`, `--export-options-plist`, `--split-debug-info` and Flutter build arguments after `--`. Preserve version constants and SO replay inputs; `--dart-define` is unsupported.
+- Accept `build -v` / `--verbose` directly, stream build logs to stderr and keep stdout as JSON. Verbosity is not recorded in the baseline.
 
 ## 1.1.0
 

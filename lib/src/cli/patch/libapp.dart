@@ -1,18 +1,22 @@
 import 'dart:io';
 
+import 'package:archive/archive.dart';
 import 'package:path/path.dart' as p;
 
 import '../core.dart';
 import '../build/bootstrap.dart';
 import '../build/host_policy.dart';
+import '../build/options.dart';
 import '../build/pipeline.dart';
 import '../build/runtime_package.dart';
 import '../sdk/android.dart';
 import 'pipeline.dart';
+import 'resources.dart';
 
 /// An SO host's patch: the host's APK rebuilt from the changed sources with
 /// the same engine, flavor, versionCode, host policy and generated entry. It
-/// ships only the rebuilt libapp.so.
+/// ships the rebuilt libapp.so; the APK's flutter assets are the bundle the
+/// shared resource step compares with the release.
 class LibappProducer implements CodeProducer {
   LibappProducer(this.run);
   final PatchRun run;
@@ -71,6 +75,7 @@ class LibappProducer implements CodeProducer {
       flavor: req.flavor == 'default' ? null : req.flavor,
       versionCode: req.minBuild.toString(),
       hostPolicy: policy,
+      flutterOptions: FlutterBuildOptions.recorded(receipt['flutter_build']),
     );
     final host = p.join(work, 'host');
     await Directory(host).create();
@@ -103,6 +108,31 @@ class LibappProducer implements CodeProducer {
     if (info['libapp_sha256'] != receipt['libapp_sha256']) {
       run.facts.changed.add('libapp.so');
     }
-    return PatchCode(kind: 'libapp', file: p.join(host, 'libapp.so'));
+    run.phase = 'resources';
+    final bundle = p.join(work, 'flutter_assets');
+    const prefix = 'assets/flutter_assets/';
+    for (final file in ZipDecoder().decodeBytes(
+      await File(apk).readAsBytes(),
+    )) {
+      if (!file.isFile || !file.name.startsWith(prefix)) continue;
+      final key = file.name.substring(prefix.length);
+      assetKey(key);
+      final out = File(p.join(bundle, key));
+      await out.parent.create(recursive: true);
+      await out.writeAsBytes(file.content as List<int>);
+    }
+    final hostFiles = (receipt['resources'] as Map?)?['files'] as Map?;
+    return PatchCode(
+      kind: 'libapp',
+      file: p.join(host, 'libapp.so'),
+      bundle: bundle,
+
+      fonts: (payload) => payload.collectFonts(
+        const [],
+        hostFiles: hostFiles ?? const {},
+        hostFonts: (receipt['resources'] as Map?)?['fonts'] as List?,
+        wholeFamilies: true,
+      ),
+    );
   }
 }

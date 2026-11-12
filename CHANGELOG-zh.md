@@ -5,7 +5,9 @@
 ## 未发布
 
 - 字节码补丁只选择变更库和必要的调用库、part，复用未改动的宿主库；移除自动扩大到整包的兜底。旧宿主缺少复用接口时需要重新构建。
-- 移除资源、字体补丁的打包与加载，以及 `--assets` 选项；资源改动需发布安装包。SO 补丁仍包含完整 `libapp.so`。
+- 恢复资源、字体差异打包、校验、启动加载和 `--assets`，保持代码按库筛选；资源补丁要求重建支持它的宿主。字体族更新保留所有样式。SO 补丁仍包含完整 `libapp.so`。
+- 支持 `--build-name`、`--build-number`、`--export-options-plist`、`--split-debug-info` 与 `--` 后的 Flutter 构建参数透传，保存版本常量与 SO 重建参数；不支持 `--dart-define`。
+- `build` 支持直接使用 `-v` / `--verbose`，实时向 stderr 输出构建日志；stdout 保持 JSON，日志选项不写入基线。
 
 ## 1.1.0
 

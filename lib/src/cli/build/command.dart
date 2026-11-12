@@ -13,6 +13,7 @@ import '../sdk/environment.dart';
 import '../baseline/repository.dart';
 import '../baseline/store.dart';
 import 'pipeline.dart';
+import 'options.dart';
 import 'host_policy.dart';
 import '../project.dart';
 
@@ -20,19 +21,34 @@ Future<int> buildCommand(ArgResults args) async {
   RandomAccessFile? lock;
   try {
     require(
-      args.rest.length == 1 &&
-          const ['android', 'ios'].contains(args.rest.single),
+      args.rest.isNotEmpty &&
+          const ['android', 'ios'].contains(args.rest.first) &&
+          (args.rest.length == 1 || args.arguments.contains('--')),
       'USAGE_ERROR',
-      'Use build android or build ios.',
+      'Use build android|ios [options] [-- <flutter build options>].',
     );
-    final platform = args.rest.single;
+    final platform = args.rest.first;
+    final flutterOptions = await FlutterBuildOptions.resolve(
+      FlutterBuildOptions.fromCommand(args),
+      platform: platform,
+      exportMethod: args['export-method'] as String?,
+    );
+    final versionCode =
+        args['version-code'] as String? ?? flutterOptions.buildNumber;
+    require(
+      args['version-code'] == null ||
+          flutterOptions.buildNumber == null ||
+          args['version-code'] == flutterOptions.buildNumber,
+      'BUILD_CONFIG_INVALID',
+      '--version-code and --build-number must agree.',
+    );
 
     final host = requireSupportedHost(target: platform);
 
     final cache = managedCache(args['cache-dir'] as String?);
     await rejectLinks(cache);
     await Directory(cache).create(recursive: true);
-    final commands = Commands(cache);
+    final commands = Commands(cache, verbose: flutterOptions.verbose);
     final project = p.absolute(
       args['project'] as String? ?? Directory.current.path,
     );
@@ -43,7 +59,7 @@ Future<int> buildCommand(ArgResults args) async {
             config,
             platform: platform,
             applicationId: args['application-id'] as String?,
-            versionCode: args['version-code'] as String?,
+            versionCode: versionCode,
             flavor: args['flavor'] as String?,
             channel: args['channel'] as String?,
             strategy: args['strategy'] as String?,
@@ -74,8 +90,9 @@ Future<int> buildCommand(ArgResults args) async {
       hostPolicy: policy,
       target: args['target'] as String,
       flavor: args['flavor'] as String?,
-      versionCode: args['version-code'] as String?,
-      exportMethod: args['export-method'] as String?,
+      versionCode: versionCode,
+      exportMethod: flutterOptions.exportMethod,
+      flutterOptions: flutterOptions,
       url: config.url,
     );
     require(

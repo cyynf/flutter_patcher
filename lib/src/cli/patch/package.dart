@@ -8,6 +8,7 @@ import 'package:crypto/crypto.dart';
 import 'package:path/path.dart' as p;
 
 import '../core.dart';
+import 'resources.dart';
 export '../crypto/signing.dart' show hexBytes;
 
 /// Patch archive manifest version; must match the plugin's reader.
@@ -77,7 +78,7 @@ int newModuleId() {
   return 1 + random.nextInt(1 << 26) * (1 << 26) + random.nextInt(1 << 26);
 }
 
-/// Immutable compiled code, before publication numbering/signing.
+/// Immutable compiled code and resources, before publication numbering/signing.
 final class PatchDraft {
   PatchDraft._(this.payload, this.manifest);
 
@@ -119,16 +120,7 @@ final class PatchDraft {
       );
       final moduleId = manifest['module_id'];
       final fingerprint = manifest['fingerprint'];
-      final code = manifest['code'];
-      if (archive.length != 2 ||
-          code is! Map ||
-          codePaths[code['kind']] != code['path'] ||
-          archive.findFile(code['path'] as String) == null ||
-          manifest['assets'] is! List ||
-          (manifest['assets'] as List).isNotEmpty ||
-          manifest['fonts'] is! List ||
-          (manifest['fonts'] as List).isNotEmpty ||
-          manifest['format_version'] != patchFormatVersion ||
+      if (manifest['format_version'] != patchFormatVersion ||
           manifest['draft_version'] != 1 ||
           manifest.containsKey('patch_seq') ||
           moduleId is! int ||
@@ -137,6 +129,54 @@ final class PatchDraft {
           fingerprint is! String ||
           !RegExp(r'^[0-9a-f]{64}$').hasMatch(fingerprint)) {
         throw const FormatException();
+      }
+      final code = manifest['code'];
+      if (code is! Map ||
+          !codePaths.containsKey(code['kind']) ||
+          codePaths[code['kind']] != code['path'] ||
+          manifest['assets'] is! List ||
+          manifest['fonts'] is! List) {
+        throw const FormatException('Invalid draft entries');
+      }
+      final listed = {'patch_manifest.json'};
+      void check(Map row) {
+        final path = row['path'] as String;
+        assetKey(path);
+        final file = archive.findFile(path);
+        if (!listed.add(path) ||
+            file == null ||
+            !file.isFile ||
+            file.size > 64 * 1024 * 1024 ||
+            row['length'] != file.size ||
+            row['sha256'] !=
+                sha256.convert(file.content as List<int>).toString()) {
+          throw const FormatException('Invalid draft entry digest');
+        }
+      }
+
+      check(code);
+      final keys = <String>{};
+      for (final raw in manifest['assets'] as List) {
+        final row = raw as Map;
+        assetKey(row['key'] as String);
+        if (row['path'] != 'assets/${row['key']}' ||
+            !keys.add(row['key'] as String)) {
+          throw const FormatException('Invalid draft asset');
+        }
+        check(row);
+      }
+      for (final raw in manifest['fonts'] as List) {
+        final row = raw as Map;
+        if (row['family'] is! String ||
+            (row['family'] as String).isEmpty ||
+            row['path'] is! String ||
+            !(row['path'] as String).startsWith('fonts/')) {
+          throw const FormatException('Invalid draft font');
+        }
+        check(row);
+      }
+      if (listed.length != archive.length || archive.length > 4096) {
+        throw const FormatException('Unlisted draft entries');
       }
       return PatchDraft._(payload, manifest);
     } catch (_) {
@@ -148,11 +188,14 @@ final class PatchDraft {
   }
 }
 
-/// Packs only [code] of [kind] and its manifest into a draft.
+/// Packs [code] of [kind] with the patch's resources into a draft.
 Future<PatchDraft> packPatch({
   required String kind,
   required String code,
   required Map<String, dynamic> metadata,
+  Map<String, List<int>> extraEntries = const {},
+  List<Map<String, dynamic>> fonts = const [],
+  List<Map<String, dynamic>> assets = const [],
 }) async {
   final codePath = codePaths[kind];
   require(
@@ -161,6 +204,56 @@ Future<PatchDraft> packPatch({
     'Unknown code kind: $kind',
   );
   final bytes = await File(code).readAsBytes();
+  require(
+    extraEntries.length <= 4094 &&
+        extraEntries.values.every((v) => v.length <= 64 * 1024 * 1024) &&
+        bytes.length +
+                extraEntries.values.fold<int>(0, (n, v) => n + v.length) <=
+            256 * 1024 * 1024,
+    'PATCH_PACKAGE_INVALID',
+    'Patch payload exceeds resource limits',
+  );
+  for (final row in assets) {
+    assetKey(row['key'] as String);
+    require(
+      row['path'] == 'assets/${row['key']}',
+      'PATCH_PACKAGE_INVALID',
+      'Asset key/path mismatch',
+    );
+  }
+  for (final row in fonts) {
+    require(
+      row['family'] is String &&
+          (row['family'] as String).isNotEmpty &&
+          (row['path'] as String).startsWith('fonts/'),
+      'PATCH_PACKAGE_INVALID',
+      'Invalid font metadata',
+    );
+  }
+  final listed = <String>{};
+  for (final row in [...fonts, ...assets]) {
+    final path = row['path'] as String;
+    assetKey(path);
+    require(
+      (path.startsWith('fonts/') || path.startsWith('assets/')) &&
+          listed.add(path) &&
+          extraEntries.containsKey(path),
+      'PATCH_PACKAGE_INVALID',
+      'Invalid resource entry',
+    );
+    final data = extraEntries[path]!;
+    require(
+      data.length == row['length'] &&
+          sha256.convert(data).toString() == row['sha256'],
+      'PATCH_PACKAGE_INVALID',
+      'Resource metadata does not match bytes',
+    );
+  }
+  require(
+    listed.length == extraEntries.length,
+    'PATCH_PACKAGE_INVALID',
+    'Unlisted resource entry',
+  );
   require(
     bytes.isNotEmpty && bytes.length <= 64 * 1024 * 1024,
     'PATCH_PACKAGE_INVALID',
@@ -176,9 +269,8 @@ Future<PatchDraft> packPatch({
       'length': bytes.length,
       'sha256': sha256.convert(bytes).toString(),
     },
-    // Empty legacy fields keep code-only patches readable by existing hosts.
-    'fonts': const [],
-    'assets': const [],
+    'fonts': fonts,
+    'assets': assets,
   };
   // The Dart bootstrap reads a bytecode archive in place, so every entry is
   // STORED. Native code unpacks a libapp.so once at install: it is deflated,
@@ -187,10 +279,12 @@ Future<PatchDraft> packPatch({
   final payload = plainZip({
     codePath!: bytes,
     'patch_manifest.json': utf8.encode(jsonEncode(manifest)),
+    ...extraEntries,
   }, deflated: deflated);
   final zip = ZipDecoder().decodeBytes(payload);
   require(
-    zip.length == 2 &&
+    zip.length == 2 + extraEntries.length &&
+        zip.length <= 4096 &&
         zip.every((f) => f.size <= 64 * 1024 * 1024) &&
         zip.every(
           (f) =>

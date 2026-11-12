@@ -26,6 +26,8 @@ const releaseFiles = <String>['libapp.so', 'package_config.json'];
 /// Build receipt fields owned by the release object.
 const releaseReceiptKeys = {
   'module_identity',
+  'flutter_build',
+  'resource_patches',
   'application_id',
   'version_code',
   'public_key',
@@ -173,6 +175,8 @@ SplitBaseline splitBaseline(
     'libapp_sha256': files['libapp.so']['sha256'],
     'build_id': legacy['build_id'],
     'resources': receipt['resources'],
+    for (final key in ['flutter_build', 'resource_patches'])
+      if (receipt.containsKey(key)) key: receipt[key],
     'package_inputs': receipt['package_inputs'],
     'artifacts': receipt['artifacts'],
     'engine_capabilities': receipt['engine_capabilities'],
@@ -365,8 +369,8 @@ Future<Map<String, dynamic>> verifyReleaseObject(
   final receipt = await baselineObject(p.join(root, 'release_receipt.json'));
   final receiptKeys = {...releaseReceiptKeys};
   // Older releases predate the optional module-identity capability.
-  if (!receipt.containsKey('module_identity')) {
-    receiptKeys.remove('module_identity');
+  for (final key in ['module_identity', 'flutter_build', 'resource_patches']) {
+    if (!receipt.containsKey(key)) receiptKeys.remove(key);
   }
   valid(
     receipt.length == receiptKeys.length + 4 &&

@@ -17,6 +17,7 @@ import 'workspace.dart';
 import 'line_endings.dart';
 import 'bootstrap.dart';
 import 'defines.dart';
+import 'options.dart';
 import 'runtime_package.dart';
 import 'outputs.dart';
 import 'host_policy.dart';
@@ -30,6 +31,7 @@ class BuildRequest {
   final String target;
   final String? flavor, versionCode, exportMethod;
   final HostPolicy hostPolicy;
+  final FlutterBuildOptions flutterOptions;
 
   /// Where the host downloads patches; recorded in its host trust.
   final String? url;
@@ -46,8 +48,33 @@ class BuildRequest {
     this.flavor,
     this.versionCode,
     this.exportMethod,
+    this.flutterOptions = const FlutterBuildOptions(),
     this.url,
   });
+  Map<String, dynamic> settings(Map pubspec) {
+    final version = '${pubspec['version'] ?? ''}'.split('+');
+    final name =
+        flutterOptions.buildName ??
+        (version.first.isEmpty ? null : version.first);
+    final saved = flutterOptions.receipt;
+    return {
+      ...saved,
+      'build_name': ?name,
+      'arguments': [
+        if (name != null && flutterOptions.buildName == null) ...[
+          '--build-name',
+          name,
+        ],
+        ...saved['arguments'] as List,
+      ],
+      'environment_defines': releaseDefines(
+        flavor,
+        buildName: name,
+        buildNumber: versionCode ?? hostPolicy.fields['version_code'],
+      ),
+    };
+  }
+
   Future<void> validate() async {
     require(
       target.startsWith('lib/') &&
@@ -167,6 +194,7 @@ class BuildPipeline {
         await File(p.join(project, 'pubspec.yaml')).readAsString(),
       ) as Map;
       final package = pubspec['name'] as String;
+      final buildSettings = request.settings(pubspec);
       phase = 'pub-get';
       await run(sdk.host.flutterLauncher(managed), [
         '--suppress-analytics',
@@ -231,7 +259,11 @@ class BuildPipeline {
             '--no-aot',
             '--no-tfa',
             '--no-link-platform',
-            ...defineArgs(releaseDefines(request.flavor)),
+            ...defineArgs(
+              Map<String, String>.from(
+                buildSettings['environment_defines'] as Map,
+              ),
+            ),
             if (virtual != null) ...virtual.compilerArgs,
             '--packages',
             virtual?.packagesUri ?? packages,
@@ -252,7 +284,11 @@ class BuildPipeline {
           '--no-aot',
           '--no-tfa',
           linked ? '--link-platform' : '--no-link-platform',
-          ...defineArgs(releaseDefines(request.flavor)),
+          ...defineArgs(
+            Map<String, String>.from(
+              buildSettings['environment_defines'] as Map,
+            ),
+          ),
           '--packages',
           packages,
           if (iface != null) ...['--dynamic-interface', iface],
@@ -435,6 +471,8 @@ class BuildPipeline {
         'fingerprint': identity,
         'public_key': request.publicKey,
         'package_inputs': sourceInputs,
+        'flutter_build': buildSettings,
+        'resource_patches': 1,
         'pinned_packages': pins.pinned,
         ..._built,
         'build_host': {'os': sdk.host.os, 'arch': sdk.host.arch},
@@ -510,10 +548,11 @@ class BuildPipeline {
         application: true,
       );
       final crlf = await crlfDartSources(project);
-      final package =
-          (loadYaml(await File(p.join(project, 'pubspec.yaml')).readAsString())
-                  as Map)['name']
-              as String;
+      final pubspec = loadYaml(
+        await File(p.join(project, 'pubspec.yaml')).readAsString(),
+      ) as Map;
+      final package = pubspec['name'] as String;
+      final buildSettings = request.settings(pubspec);
       phase = 'pub-get';
       await run(sdk.host.flutterLauncher(managed), [
         '--suppress-analytics',
@@ -575,6 +614,8 @@ class BuildPipeline {
         ...apkInfo,
         'public_key': request.publicKey,
         'package_inputs': sourceInputs,
+        'flutter_build': buildSettings,
+        'resource_patches': 1,
         ..._built,
         'build_host': {'os': sdk.host.os, 'arch': sdk.host.arch},
         'crlf_dart_sources': crlf,
@@ -717,6 +758,7 @@ class BuildPipeline {
           '--build-number',
           request.versionCode!,
         ],
+        ...request.flutterOptions.arguments,
         ...extra,
       ],
       cwd: project,

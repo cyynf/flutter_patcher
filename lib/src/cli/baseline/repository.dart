@@ -438,6 +438,8 @@ class BaselineRepository {
       ])
         k: receipt[k],
       'build_id': buildId,
+      for (final key in ['flutter_build', 'resource_patches'])
+        if (receipt.containsKey(key)) key: receipt[key],
     };
     await File(p.join(dir, 'release_receipt.json'))
         .writeAsBytes(encodeObject(releaseReceipt));
