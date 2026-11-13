@@ -437,6 +437,8 @@ class BaselineRepository {
         'engine_capabilities',
       ])
         k: receipt[k],
+      if (receipt.containsKey('build_inputs'))
+        'build_inputs': receipt['build_inputs'],
       'build_id': buildId,
       for (final key in ['flutter_build', 'resource_patches'])
         if (receipt.containsKey(key)) key: receipt[key],

@@ -4,6 +4,7 @@ import 'package:args/args.dart';
 import 'package:path/path.dart' as p;
 
 import '../core.dart';
+import 'defines.dart';
 
 /// Flutter arguments are individual process arguments, never a shell command.
 /// Build identity and the generated entry remain owned by the patcher.
@@ -19,6 +20,8 @@ class FlutterBuildOptions {
   final String? buildNumber, buildName, exportMethod;
 
   bool get verbose => arguments.any(_isVerbose);
+
+  List<String> get nativeArguments => withoutVersionArgs(arguments);
 
   static bool _isVerbose(String value) =>
       value == '--verbose' || RegExp(r'^-v+$').hasMatch(value);
@@ -100,7 +103,7 @@ class FlutterBuildOptions {
             !(key.startsWith('-o') && !key.startsWith('--')),
         'BUILD_CONFIG_INVALID',
         '$key cannot be forwarded: the patcher controls build mode, entry, '
-            'ABI and compiler inputs. --dart-define is not supported.',
+            'ABI and compiler inputs. Pass --dart-define before --.',
       );
       String value() {
         final equals = argument.indexOf('=');
@@ -175,7 +178,7 @@ class FlutterBuildOptions {
             'BUILD_CONFIG_INVALID',
             'Unexpected -- separator.',
           );
-          result.add(argument);
+          result.add(_isVerbose(argument) ? '--verbose' : argument);
       }
     }
     require(
@@ -183,6 +186,7 @@ class FlutterBuildOptions {
       'BUILD_CONFIG_INVALID',
       '--export-options-plist and --export-method cannot be combined.',
     );
+    checkFlutterArgs(result, 'BUILD_CONFIG_INVALID', platform: platform);
     return FlutterBuildOptions(
       arguments: List.unmodifiable([
         if (buildName != null) ...['--build-name', buildName],
@@ -191,45 +195,6 @@ class FlutterBuildOptions {
       buildNumber: buildNumber,
       buildName: buildName,
       exportMethod: exportMethod,
-    );
-  }
-
-  /// Inputs needed by an SO rebuild; export destinations are local build
-  /// outputs and must not make a later patch write to the old machine's path.
-  Map<String, Object?> get receipt {
-    final replay = <String>[];
-    for (var i = 0; i < arguments.length; i++) {
-      // Logging is a choice of this invocation, not a host build input.
-      if (_isVerbose(arguments[i])) continue;
-      if (const {
-        '--export-options-plist',
-        '--split-debug-info',
-      }.contains(arguments[i])) {
-        i++;
-        continue;
-      }
-      replay.add(arguments[i]);
-    }
-    return {
-      'arguments': replay,
-      if (buildName != null) 'build_name': buildName,
-    };
-  }
-
-  static FlutterBuildOptions recorded(Object? value) {
-    if (value == null) return const FlutterBuildOptions();
-    require(
-      value is Map &&
-          value['arguments'] is List &&
-          (value['arguments'] as List).every((e) => e is String) &&
-          (value['build_name'] == null || value['build_name'] is String),
-      'PATCH_BASELINE_INCOMPATIBLE',
-      'Invalid recorded Flutter build arguments.',
-    );
-    final row = value as Map;
-    return FlutterBuildOptions(
-      arguments: List<String>.from(row['arguments'] as List),
-      buildName: row['build_name'] as String?,
     );
   }
 }

@@ -81,6 +81,22 @@ ArgParser environmentOptions() => ArgParser()
     help: 'Optional existing APK whose engine should be checked.',
   );
 
+/// The define options of `flutter build`, which build and patch take too.
+void _defineOptions(ArgParser parser, String help) => parser
+  ..addMultiOption(
+    'dart-define',
+    abbr: 'D',
+    splitCommas: false,
+    valueHelp: 'KEY=VALUE',
+    help: help,
+  )
+  ..addMultiOption(
+    'dart-define-from-file',
+    splitCommas: false,
+    valueHelp: 'file.json|.env',
+    help: 'A JSON or .env file of defines; --dart-define wins over it.',
+  );
+
 ArgParser parser() {
   final patch = environmentOptions()
     ..addFlag(
@@ -101,6 +117,11 @@ ArgParser parser() {
       'fingerprint',
       help: 'Optional; must match the release. Required only for a legacy baseline without a release binding.',
     );
+  _defineOptions(
+    patch,
+    'A define this patch changes or adds; every other define is the '
+    'host\'s.',
+  );
   final build = environmentOptions()
     ..addFlag(
       'verbose',
@@ -156,6 +177,10 @@ ArgParser parser() {
       allowed: iosExportMethods,
       help: 'iOS only: passed to flutter build ipa (default app-store).',
     );
+  _defineOptions(
+    build,
+    'A compile-time constant, as for flutter build; a patch may change it.',
+  );
   final doctor = environmentOptions()
     ..addOption(
       'project',

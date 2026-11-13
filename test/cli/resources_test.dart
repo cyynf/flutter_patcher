@@ -9,6 +9,27 @@ import 'package:flutter_patcher/src/cli/patch/package.dart';
 import 'package:flutter_patcher/src/cli/core.dart';
 
 void main() {
+  test(
+    'resource capability accepts upstream inputs but never a code-only host',
+    () {
+      expect(supportsResourcePatches({'resource_patches': 1}), isTrue);
+      expect(
+        supportsResourcePatches({
+          'build_inputs': {'schema': 1},
+        }),
+        isTrue,
+      );
+      expect(supportsResourcePatches({}), isFalse);
+      expect(supportsResourcePatches({'flutter_build': {}}), isFalse);
+      expect(
+        supportsResourcePatches({
+          'resource_patches': 0,
+          'build_inputs': {'schema': 1},
+        }),
+        isFalse,
+      );
+    },
+  );
   test('resource manifest mismatch is rejected before signing', () async {
     final dir = await Directory.systemTemp.createTemp('resources-package-');
     addTearDown(() => dir.delete(recursive: true));

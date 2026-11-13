@@ -159,6 +159,36 @@ void main() {
     });
   });
 
+  test(
+    'define changes select readers and callers while reusing other libraries',
+    () async {
+      await file(
+        'package:app/main.dart',
+        "import 'screen.dart'; import 'stable.dart'; void main() {}",
+      );
+      await file(
+        'package:app/screen.dart',
+        "import 'package:dep/config.dart'; String screen() => environment;",
+      );
+      await file(
+        'package:dep/config.dart',
+        "const environment = String.fromEnvironment('API');",
+      );
+      await file('package:app/stable.dart', "const label = 'API';");
+      await file('package:dep/other.dart', "const value = 1;");
+      final readers = await defineReaders(config, ['API']);
+      expect(readers['API'], ['package:dep/config.dart']);
+      final selected = await select(
+        readers.values.expand((sources) => sources).toList(),
+      );
+      expect(selected, {
+        'package:app/main.dart',
+        'package:app/screen.dart',
+        'package:dep/config.dart',
+      });
+    },
+  );
+
   test('source hashes and imports agree on encoded library names', () async {
     await file(
       'package:app/main.dart',

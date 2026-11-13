@@ -57,7 +57,9 @@ void main() {
         'app/lib/main.dart',
         "import 'changed.dart'; import 'stable.dart'; void main() => print(changed() + stable());",
       );
-      await source('app/lib/changed.dart', "String changed() => 'before';");
+      const originalSource =
+          "String changed() => const String.fromEnvironment('FEATURE', defaultValue: 'before');";
+      await source('app/lib/changed.dart', originalSource);
       await source('app/lib/stable.dart', "String stable() => 'host';");
       final analysis = p.join(root.path, 'analysis.dill');
       final baseline = p.join(root.path, 'app.dill');
@@ -170,6 +172,30 @@ void main() {
         File(p.join(root.path, 'module.bc')).lengthSync(),
         greaterThan(120),
       );
+      // A define-only patch still emits just the reader and its callers;
+      // the replacement tool must actually fold the supplied value into it.
+      await source('app/lib/changed.dart', originalSource);
+      await File(p.join(module, 'app/changed.dart'))
+          .writeAsString(originalSource);
+      final readers = await defineReaders(config, ['FEATURE']);
+      expect(readers['FEATURE'], ['package:app/changed.dart']);
+      final input = await readObject(request);
+      await writeObject(request, {
+        ...input,
+        'environment_defines': {'FEATURE': 'define-value-after'},
+      });
+      final defined =
+          jsonDecode(await run(['compile-patch', '--request', request])) as Map;
+      expect(defined['status'], 'compiled', reason: '$defined');
+      expect(
+        defined['emitted_libraries'],
+        unorderedEquals(report['emitted_libraries'] as List),
+      );
+      expect(
+        latin1.decode(await File(p.join(root.path, 'module.bc')).readAsBytes()),
+        contains('define-value-after'),
+      );
+      await writeObject(request, input);
       // Resource-only patches reuse host main; no application library is emitted.
       await File(p.join(module, 'app/__patch_entry.dart'))
           .writeAsString(patchEntry('app', 'main.dart', 9, 'a' * 64, 'lean'));

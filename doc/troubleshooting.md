@@ -314,9 +314,9 @@ To see how the device judges a file, pass its first 146 bytes to `FlutterPatcher
 
 | Code | When it appears | Fix |
 |---|---|---|
-| `BUILD_CONFIG_INVALID` | No `+` build number in `pubspec.yaml`, no single application id, an invalid `--host-policy` file, a `--flavor` or `--version-code` that differs from that policy, or an output directory that exists | Correct what `message` names, for example `version: 1.0.0+1`, `--application-id`, a new `--out` |
+| `BUILD_CONFIG_INVALID` | No `+` build number in `pubspec.yaml`, no single application id, an invalid `--host-policy` file, a `--flavor` or `--version-code` that differs from that policy, a define or an option after `--` that is not accepted, or an output directory that exists | Correct what `message` names, for example `version: 1.0.0+1`, `--application-id`, a new `--out` |
 | `BUILD_PROJECT_INVALID` | The project layout is not supported, for example symbolic links in source packages | Change the project as `message` says |
-| `BUILD_BOOTSTRAP_UNAVAILABLE` | The project does not depend on `flutter_patcher` | Run `flutter pub add flutter_patcher` |
+| `BUILD_BOOTSTRAP_UNAVAILABLE` | The project does not depend on `flutter_patcher` | Run `flutter pub add flutter_patcher:1.1.1` |
 | `BUILD_INPUT_CHANGED` | A source file changed while the build ran | Build again without editing files meanwhile |
 | `BUILD_STEP_FAILED` | A Flutter build step failed | Read the end of the log and the log directory in `message` |
 | `BUILD_APK_INVALID`<br>`BUILD_IPA_INVALID`<br>`ENGINE_INJECTION_FAILED` | The built app fails validation, for example its application id or build number differs from the host policy | On iOS, check code signing and `--export-method`; with `--host-policy`, check `application_id` and `version_code` |
@@ -368,6 +368,8 @@ The patch is made; part of it does not take effect everywhere.
 |---|---|---|
 | `PATCH_BASELINE_INCOMPATIBLE` | The host cannot be patched by this flutter_patcher or Flutter version | See [`PATCH_BASELINE_INCOMPATIBLE`](#patch_baseline_incompatible) |
 | `PATCH_TARGET_MISMATCH` | The entry file differs from the host's | Pass the `--target` used for `build` |
+| `PATCH_BUILD_INPUTS_MISMATCH` | `--target` is not the host's entry file, or `pubspec.yaml` has a `version` and had none when the host was built | Drop `--target`; remove `version`, or release a new host |
+| `PATCH_DEFINE_UNREAD` | No Dart source reads a define passed to `patch` with `fromEnvironment` or `hasEnvironment` | Check its name |
 | `PATCH_DRAFT_INVALID` | The output directory holds no valid `patch.draft` | Pass an output of `patch` from this version, or run `patch` again |
 | `PATCH_CONFIG_INVALID` | An option is invalid, or the output directory exists | Correct what `message` names |
 | `PATCH_COMPILE_FAILED` | Dart compilation failed | Check that `flutter build` succeeds first |

@@ -6,7 +6,6 @@ import 'package:path/path.dart' as p;
 import '../core.dart';
 import '../build/bootstrap.dart';
 import '../build/host_policy.dart';
-import '../build/options.dart';
 import '../build/pipeline.dart';
 import '../build/runtime_package.dart';
 import '../sdk/android.dart';
@@ -71,11 +70,10 @@ class LibappProducer implements CodeProducer {
       project: run.project,
       output: p.join(work, 'unused'),
       publicKey: receipt['public_key'] as String,
-      target: req.target,
+      target: run.target,
       flavor: req.flavor == 'default' ? null : req.flavor,
       versionCode: req.minBuild.toString(),
       hostPolicy: policy,
-      flutterOptions: FlutterBuildOptions.recorded(receipt['flutter_build']),
     );
     final host = p.join(work, 'host');
     await Directory(host).create();
@@ -90,7 +88,7 @@ class LibappProducer implements CodeProducer {
       run.project,
       bootstrapSource(
         run.app,
-        req.target.substring(4),
+        run.target.substring(4),
         fingerprint,
         receipt['public_key'] as String,
         modules: false,
@@ -102,6 +100,7 @@ class LibappProducer implements CodeProducer {
       request,
       target,
       const [],
+      run.inputs,
     );
     run.phase = 'verify-apk';
     final info = await builder.verifyApk(apk, host, request, trust);

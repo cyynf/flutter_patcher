@@ -10,6 +10,7 @@ import 'sdk/host.dart';
 import 'sdk/environment.dart';
 import 'baseline/repository.dart';
 import 'baseline/store.dart';
+import 'build/defines.dart';
 import 'build/host_policy.dart';
 import 'keys/keyring.dart';
 import 'project.dart';
@@ -38,9 +39,19 @@ Future<int> patchCommand(ArgResults args) async {
     requireSupportedHost(target: platform);
     final withdraw = args['withdraw'] == true;
     require(
-      !withdraw || !(args.wasParsed('target') || args.wasParsed('assets')),
+      !withdraw ||
+          !(args.wasParsed('target') ||
+              args.wasParsed('assets') ||
+              args.wasParsed('dart-define') ||
+              args.wasParsed('dart-define-from-file')),
       'USAGE_ERROR',
-      'patch --withdraw compiles nothing; drop --target and --assets.',
+      'patch --withdraw compiles nothing; drop --target, --assets and '
+          'the defines.',
+    );
+    final defines = await readDefines(
+      args.multiOption('dart-define-from-file'),
+      args.multiOption('dart-define'),
+      'PATCH_CONFIG_INVALID',
     );
 
     final cache = managedCache(args['cache-dir'] as String?);
@@ -121,19 +132,22 @@ Future<int> patchCommand(ArgResults args) async {
       moduleId: newModuleId(),
       minBuild: int.tryParse(versionCode) ?? -1,
 
-      target: args['target'] as String,
+      target: args.wasParsed('target') ? args['target'] as String : null,
+      defines: defines,
       assets: (args['assets'] as List).cast<String>(),
       platform: platform,
       offline: offline,
     );
     await request.validate();
-    // A patch uses the releases its host was built with, never newer ones.
+    // A patch uses the releases its host was built with, never newer ones,
+    // but for a tools release the index replaces.
     final store = ArtifactStore(
       cache,
       Uri.parse(args['artifacts-url'] as String),
       Uri.parse(args['index-url'] as String),
       Downloads(offline: offline),
-    )..select(builtWith(resolved));
+    );
+    await store.selectBuilt(builtWith(resolved), sdk.version);
     // The Android engine serves only SO rebuilds; an iOS patch needs none.
     final engine = platform == 'android'
         ? await store.obtain('engine', sdk)

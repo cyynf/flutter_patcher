@@ -36,6 +36,10 @@ class BuildRequest {
   /// Where the host downloads patches; recorded in its host trust.
   final String? url;
 
+  /// The user's defines, and `flutter build` options passed on to it.
+  final Map<String, String> defines;
+  final List<String> flutterArgs;
+
   /// `android` or `ios`, from the host policy's ABI.
   String get platform => platformOfAbi[hostPolicy.fields['abi']]!;
 
@@ -50,31 +54,9 @@ class BuildRequest {
     this.exportMethod,
     this.flutterOptions = const FlutterBuildOptions(),
     this.url,
+    this.defines = const {},
+    this.flutterArgs = const [],
   });
-  Map<String, dynamic> settings(Map pubspec) {
-    final version = '${pubspec['version'] ?? ''}'.split('+');
-    final name =
-        flutterOptions.buildName ??
-        (version.first.isEmpty ? null : version.first);
-    final saved = flutterOptions.receipt;
-    return {
-      ...saved,
-      'build_name': ?name,
-      'arguments': [
-        if (name != null && flutterOptions.buildName == null) ...[
-          '--build-name',
-          name,
-        ],
-        ...saved['arguments'] as List,
-      ],
-      'environment_defines': releaseDefines(
-        flavor,
-        buildName: name,
-        buildNumber: versionCode ?? hostPolicy.fields['version_code'],
-      ),
-    };
-  }
-
   Future<void> validate() async {
     require(
       target.startsWith('lib/') &&
@@ -150,6 +132,21 @@ class BuildPipeline {
     'engine_capabilities': engine['capabilities'],
   };
 
+  /// What [request]'s host, built in the copy [project], compiles with.
+  Future<BuildInputs> inputsOf(BuildRequest request, String project) async =>
+      BuildInputs.of(
+        target: request.target,
+        defines: request.defines,
+        flutterArgs: [
+          ...request.flutterArgs,
+          ...request.flutterOptions.nativeArguments,
+        ],
+        sdk: await sdkDefines(managed),
+        flavor: request.flavor,
+        buildName: request.flutterOptions.buildName ?? await buildName(project),
+        buildNumber: request.hostPolicy.fields['version_code']!,
+      );
+
   Future<Map<String, dynamic>> build(BuildRequest request) async {
     await request.validate();
     _requireOutsideSdk(request.output);
@@ -190,11 +187,11 @@ class BuildPipeline {
         application: true,
       );
       final crlf = await crlfDartSources(project);
+      final inputs = await inputsOf(request, project);
       final pubspec = loadYaml(
         await File(p.join(project, 'pubspec.yaml')).readAsString(),
       ) as Map;
       final package = pubspec['name'] as String;
-      final buildSettings = request.settings(pubspec);
       phase = 'pub-get';
       await run(sdk.host.flutterLauncher(managed), [
         '--suppress-analytics',
@@ -204,8 +201,8 @@ class BuildPipeline {
       ], cwd: project);
       final packages = p.join(project, '.dart_tool/package_config.json');
       final config = await readObject(packages);
-      // Any free library can be reused by an incremental patch. Record calls
-      // between application libraries as well as their external dependencies.
+      // Incremental modules reuse unmodified application libraries too;
+      // retain calls between those libraries in the host interface.
       final pins = await computePackagePins(packages, package);
       final plugins = (config['packages'] as List).where(
         (r) => r['name'] == 'flutter_patcher',
@@ -259,11 +256,7 @@ class BuildPipeline {
             '--no-aot',
             '--no-tfa',
             '--no-link-platform',
-            ...defineArgs(
-              Map<String, String>.from(
-                buildSettings['environment_defines'] as Map,
-              ),
-            ),
+            ...defineArgs(inputs.compileDefines),
             if (virtual != null) ...virtual.compilerArgs,
             '--packages',
             virtual?.packagesUri ?? packages,
@@ -284,11 +277,7 @@ class BuildPipeline {
           '--no-aot',
           '--no-tfa',
           linked ? '--link-platform' : '--no-link-platform',
-          ...defineArgs(
-            Map<String, String>.from(
-              buildSettings['environment_defines'] as Map,
-            ),
-          ),
+          ...defineArgs(inputs.compileDefines),
           '--packages',
           packages,
           if (iface != null) ...['--dynamic-interface', iface],
@@ -423,8 +412,9 @@ class BuildPipeline {
               request,
               target,
               extra,
+              inputs,
             )
-          : await assembleApk(run, project, request, target, extra);
+          : await assembleApk(run, project, request, target, extra, inputs);
       phase = ios ? 'verify-ipa' : 'verify-apk';
       final apkInfo = ios
           ? _bind(
@@ -471,9 +461,9 @@ class BuildPipeline {
         'fingerprint': identity,
         'public_key': request.publicKey,
         'package_inputs': sourceInputs,
-        'flutter_build': buildSettings,
-        'resource_patches': 1,
         'pinned_packages': pins.pinned,
+        'build_inputs': inputs.toJson(),
+        'resource_patches': 1,
         ..._built,
         'build_host': {'os': sdk.host.os, 'arch': sdk.host.arch},
         'crlf_dart_sources': crlf,
@@ -527,7 +517,7 @@ class BuildPipeline {
   }
 
   /// SO host: the app built with the managed engine behind the generated
-  /// entry that boots the verified patch, its host policy
+  /// entry that hands a patch's resources to the engine, its host policy
   /// packaged, archived as one release object. No kernel or interface.
   Future<Map<String, dynamic>> buildSo(BuildRequest request) async {
     await request.validate();
@@ -548,11 +538,11 @@ class BuildPipeline {
         application: true,
       );
       final crlf = await crlfDartSources(project);
-      final pubspec = loadYaml(
-        await File(p.join(project, 'pubspec.yaml')).readAsString(),
-      ) as Map;
-      final package = pubspec['name'] as String;
-      final buildSettings = request.settings(pubspec);
+      final inputs = await inputsOf(request, project);
+      final package =
+          (loadYaml(await File(p.join(project, 'pubspec.yaml')).readAsString())
+                  as Map)['name']
+              as String;
       phase = 'pub-get';
       await run(sdk.host.flutterLauncher(managed), [
         '--suppress-analytics',
@@ -602,7 +592,14 @@ class BuildPipeline {
         ),
       );
       phase = 'apk';
-      final apk = await assembleApk(run, project, request, target, const []);
+      final apk = await assembleApk(
+        run,
+        project,
+        request,
+        target,
+        const [],
+        inputs,
+      );
       phase = 'verify-apk';
       final apkInfo = await verifyApk(apk, release, request, hostTrust);
       final virtual = await VirtualPackages.write(packages, [
@@ -614,7 +611,7 @@ class BuildPipeline {
         ...apkInfo,
         'public_key': request.publicKey,
         'package_inputs': sourceInputs,
-        'flutter_build': buildSettings,
+        'build_inputs': inputs.toJson(),
         'resource_patches': 1,
         ..._built,
         'build_host': {'os': sdk.host.os, 'arch': sdk.host.arch},
@@ -727,6 +724,7 @@ class BuildPipeline {
     BuildRequest request,
     String target,
     List<String> extra,
+    BuildInputs inputs,
   ) async {
     final gradle = p.join(cache, 'gradle');
     await Directory(gradle).create(recursive: true);
@@ -754,15 +752,17 @@ class BuildPipeline {
         '--target',
         target,
         if (request.flavor != null) ...['--flavor', request.flavor!],
-        if (request.versionCode != null) ...[
+        if (!inputs.builtins.containsKey('FLUTTER_BUILD_NUMBER') &&
+            request.versionCode != null) ...[
           '--build-number',
           request.versionCode!,
         ],
-        ...request.flutterOptions.arguments,
+        ...await inputs.flutterOptions(project),
         ...extra,
       ],
       cwd: project,
       env: {
+        ...inputs.flutterEnvironment,
         'FLUTTER_STORAGE_BASE_URL': Uri.directory(mirror).toString(),
         'GRADLE_USER_HOME': gradle,
       },

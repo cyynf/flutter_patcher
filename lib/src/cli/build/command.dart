@@ -13,6 +13,7 @@ import '../sdk/environment.dart';
 import '../baseline/repository.dart';
 import '../baseline/store.dart';
 import 'pipeline.dart';
+import 'defines.dart';
 import 'options.dart';
 import 'host_policy.dart';
 import '../project.dart';
@@ -43,6 +44,11 @@ Future<int> buildCommand(ArgResults args) async {
       '--version-code and --build-number must agree.',
     );
 
+    final defines = await readDefines(
+      args.multiOption('dart-define-from-file'),
+      args.multiOption('dart-define'),
+      'BUILD_CONFIG_INVALID',
+    );
     final host = requireSupportedHost(target: platform);
 
     final cache = managedCache(args['cache-dir'] as String?);
@@ -93,6 +99,7 @@ Future<int> buildCommand(ArgResults args) async {
       versionCode: versionCode,
       exportMethod: flutterOptions.exportMethod,
       flutterOptions: flutterOptions,
+      defines: defines,
       url: config.url,
     );
     require(

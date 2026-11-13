@@ -14,6 +14,15 @@ export '../baseline/resources.dart' show assetKey, AssetCodec, resourceReceipt;
 const assetOverlay = 'asset_overlay';
 const isolateEntry = 'isolate_entry';
 
+/// This fork records resource support explicitly. Upstream 1.1.1 supports
+/// it too but records only build_inputs. The intermediate code-only fork
+/// predates that record and must still rebuild before receiving resources.
+bool supportsResourcePatches(Map receipt) =>
+    receipt['resource_patches'] == 1 ||
+    (!receipt.containsKey('resource_patches') &&
+        !receipt.containsKey('flutter_build') &&
+        receipt['build_inputs'] is Map);
+
 Future<List<String>> readObjectFontSources(String bundle) async {
   final file = File(p.join(bundle, 'FontManifest.json'));
   if (!await file.exists()) return [];

@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:path/path.dart' as p;
@@ -43,6 +44,17 @@ void main() {
         exportMethod: options.exportMethod,
       );
 
+  BuildInputs inputs(FlutterBuildOptions options, {String name = '3.0.0'}) =>
+      BuildInputs.of(
+        target: 'lib/main.dart',
+        defines: const {},
+        sdk: const {},
+        flavor: null,
+        buildName: options.buildName ?? name,
+        buildNumber: '42',
+        flutterArgs: options.nativeArguments,
+      );
+
   test(
     'build accepts direct verbose aliases and the Flutter argument tail',
     () async {
@@ -60,7 +72,7 @@ void main() {
         );
         expect(options.verbose, isTrue, reason: '$arguments');
         expect(options.arguments, anyOf(contains('-v'), contains('--verbose')));
-        expect(options.receipt['arguments'], isEmpty);
+        expect(replayFlutterArgs(options.nativeArguments), isEmpty);
       }
       final quiet = parser().parse(['build', 'android']).command!;
       final options = await FlutterBuildOptions.resolve(
@@ -213,6 +225,7 @@ void main() {
         request('android', options),
         'generated/main.dart',
         ['--extra-gen-snapshot-options=trace'],
+        inputs(options),
       );
       await assembleIpa(
         run,
@@ -221,6 +234,7 @@ void main() {
         request('ios', options),
         'generated/main.dart',
         [],
+        inputs(options),
       );
       for (final call in calls) {
         expect(
@@ -230,14 +244,71 @@ void main() {
             'generated/main.dart',
             '--build-number',
             '42',
-            ...options.arguments,
+            '--build-name',
+            '2.4.0',
+            ...options.nativeArguments,
           ]),
         );
         expect(call.where((v) => v == '--target').length, 1);
+        expect(call.where((v) => v == '--build-name').length, 1);
+        expect(call.where((v) => v == '--build-number').length, 1);
         expect(call, contains('--verbose'));
       }
     },
   );
+
+  test('the real input collector combines SDK, user defines and direct version options', () async {
+    final sdkCache = File(
+      p.join(root.path, 'managed/bin/cache/flutter.version.json'),
+    );
+    await sdkCache.parent.create(recursive: true);
+    await sdkCache.writeAsString(
+      jsonEncode({
+        'frameworkVersion': '3.47.0',
+        'channel': 'stable',
+        'repositoryUrl': 'https://github.com/flutter/flutter.git',
+        'frameworkRevision': 'a' * 40,
+        'engineRevision': 'b' * 40,
+        'dartSdkVersion': '3.13.0',
+      }),
+    );
+    await File(p.join(root.path, 'pubspec.yaml'))
+        .writeAsString('name: app\nversion: 9.0.0+99\n');
+    final options = await FlutterBuildOptions.resolve([
+      '--build-name=2.4.0',
+      '-v',
+    ], platform: 'android');
+    final sdk = SdkIdentity('/sdk', '3.47.0', 'b' * 40, '3.13.0', 'a' * 40);
+    final pipeline = BuildPipeline(
+      Commands(root.path),
+      sdk,
+      p.join(root.path, 'managed'),
+      '/tool',
+      p.join(root.path, 'cache'),
+      '/aapt',
+      {'build_id': 'fixture'},
+      BaselineRepository(p.join(root.path, 'baselines'), null),
+      const {},
+    );
+    final req = BuildRequest(
+      project: root.path,
+      output: p.join(root.path, 'out'),
+      publicKey: '-',
+      hostPolicy: policy('android'),
+      flutterOptions: options,
+      defines: const {'API': 'https://example.test'},
+      versionCode: '42',
+    );
+    final inputs = await pipeline.inputsOf(req, root.path);
+    expect(inputs.compileDefines, containsPair('FLUTTER_BUILD_NAME', '2.4.0'));
+    expect(inputs.compileDefines, containsPair('FLUTTER_BUILD_NUMBER', '42'));
+    expect(inputs.compileDefines, containsPair('FLUTTER_CHANNEL', 'stable'));
+    expect(inputs.compileDefines, containsPair('API', 'https://example.test'));
+    final args = await inputs.flutterOptions(root.path);
+    expect(args.where((arg) => arg == '--build-name').length, 1);
+    expect(args, contains('--verbose'));
+    expect(inputs.toJson()['flutter_args'], isEmpty);
+  });
 
   test(
     'IPA export plist keeps its path across the isolated build directory',
@@ -266,6 +337,7 @@ void main() {
         request('ios', options),
         'generated.dart',
         [],
+        inputs(options),
       );
       expect(File(ipa).existsSync(), isTrue);
     },
@@ -281,31 +353,32 @@ void main() {
         'symbols with spaces',
         '--no-tree-shake-icons',
       ], platform: 'android');
-      final settings = request(
-        'android',
-        options,
-      ).settings({'version': '1.0.0+1'});
-      final replay = FlutterBuildOptions.recorded(settings);
-      expect(replay.arguments, [
+      final host = inputs(options);
+      final restored = BuildInputs.read(
+        {'build_inputs': host.toJson()},
+        flavor: 'default',
+        target: 'lib/main.dart',
+      );
+      expect(await restored.flutterOptions(root.path), [
+        '--build-number',
+        '42',
         '--build-name',
         '2.4.0',
         '--no-tree-shake-icons',
       ]);
-      expect(recordedReleaseDefines({'flutter_build': settings}, 'default'), {
+      expect(restored.compileDefines, {
         'FLUTTER_BUILD_NAME': '2.4.0',
         'FLUTTER_BUILD_NUMBER': '42',
         'dart.vm.product': 'true',
         'dart.vm.profile': 'false',
       });
-      expect(recordedReleaseDefines({}, 'default'), releaseDefines('default'));
-      final defaults = request(
-        'android',
-        const FlutterBuildOptions(),
-      ).settings({'version': '3.0.0+40'});
-      expect(defaults['build_name'], '3.0.0');
       expect(
-        (defaults['environment_defines'] as Map)['FLUTTER_BUILD_NUMBER'],
-        '42',
+        BuildInputs.read(
+          {},
+          flavor: 'default',
+          target: 'lib/main.dart',
+        ).compileDefines,
+        releaseDefines('default'),
       );
     },
   );
@@ -319,10 +392,17 @@ void main() {
       final metadata = await fixture.policyBuild();
       final file = p.join(fixture.input, 'build_receipt.json');
       final receipt = await readObject(file);
-      final settings = request(
-        'android',
-        const FlutterBuildOptions(),
-      ).settings({'version': '3.0.0+42'});
+      // Compatibility with baselines already published by this fork.
+      final settings = {
+        'build_name': '3.0.0',
+        'arguments': ['--build-name', '3.0.0'],
+        'environment_defines': {
+          'FLUTTER_BUILD_NAME': '3.0.0',
+          'FLUTTER_BUILD_NUMBER': '42',
+          'dart.vm.product': 'true',
+          'dart.vm.profile': 'false',
+        },
+      };
       await writeObject(file, {
         ...receipt,
         'flutter_build': settings,

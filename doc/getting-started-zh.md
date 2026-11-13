@@ -19,7 +19,7 @@
 ## 第 1 步：添加依赖
 
 ```bash
-flutter pub add flutter_patcher
+flutter pub add flutter_patcher:1.1.1
 dart run flutter_patcher init
 dart run flutter_patcher doctor
 ```
@@ -50,6 +50,8 @@ Future<void> checkForPatch() async {
   }
 }
 ```
+
+用 `flutter run` 启动的 App 不接收补丁，`checkUpdate` 在其中返回没有更新，所以日常开发不需要改动这段代码。
 
 ## 第 2 步：构建并安装
 

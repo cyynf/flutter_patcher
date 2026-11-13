@@ -5,7 +5,6 @@ import 'package:yaml/yaml.dart';
 
 import '../core.dart';
 import '../baseline/manifest.dart';
-import '../build/defines.dart';
 import '../build/pins.dart';
 import '../build/virtual_paths.dart';
 import 'pipeline.dart';
@@ -94,13 +93,22 @@ class BytecodeProducer implements CodeProducer {
         if (name != app) dependencyChanged = true;
       }
     }
+    // A changed define is an edit of each baseline library that reads it.
+    // Feed those libraries into the same caller/part selection as source edits.
+    for (final reader in facts.defineReaders.values.expand(
+      (readers) => readers,
+    )) {
+      if (changed.contains(reader) || !hashes.containsKey(reader)) continue;
+      changed.add(reader);
+      if (Uri.parse(reader).pathSegments.first != app) dependencyChanged = true;
+    }
     // The generated host.dart imports the host's entry file: a different
     // --target is a mistake, not a dependency change for the whole tier to
     // carry (it would ship the other entry's main).
     require(
       !changed.contains('package:dynamic_modules/host.dart'),
       'PATCH_TARGET_MISMATCH',
-      'The host was built from a different entry file than ${run.req.target}; '
+      'The host was built from a different entry file than ${run.target}; '
           'patch with the --target the host was built with.',
     );
     // Libraries the host never compiled are new only if they changed since
@@ -192,7 +200,7 @@ class BytecodeProducer implements CodeProducer {
             packages: freePackages ?? own,
             changed: changed,
             baselineSources: baselineSources,
-            entry: 'package:$app/${run.req.target.substring(4)}',
+            entry: 'package:$app/${run.target.substring(4)}',
           );
     own = {app, for (final uri in selected) Uri.parse(uri).pathSegments.first};
     tier = own.any((name) => name != app) ? 'whole' : 'lean';
@@ -229,7 +237,7 @@ class BytecodeProducer implements CodeProducer {
     await File(p.join(m.dir, run.app, '__patch_entry.dart')).writeAsString(
       patchEntry(
         selected.isEmpty ? run.app : names[run.app]!,
-        req.target.substring(4),
+        run.target.substring(4),
         req.moduleId,
         run.resolved.fingerprint,
         tier,
@@ -250,7 +258,7 @@ class BytecodeProducer implements CodeProducer {
       // Lets the whole tier drop Flutter's code for other platforms.
       'target_os': req.platform,
       if (usage.contains('environment_defines'))
-        'environment_defines': recordedReleaseDefines(run.receipt, req.flavor),
+        'environment_defines': run.inputs.compileDefines,
       'emit': emit,
       // Tools call this module identity 'seq'; it is not patch_seq.
       'seq': req.moduleId,
@@ -322,32 +330,36 @@ class BytecodeProducer implements CodeProducer {
     run.rules.check(PatchStage.code, run.facts);
     run.phase = 'resources';
     final bundle = p.join(work, 'flutter_assets');
+    final options = await run.inputs.flutterOptions(run.project, bundle: true);
     await withBundleMetadata(
       run.project,
       flavor: run.req.flavor,
       platform: run.req.platform,
       buildNumber: run.req.minBuild,
-      buildName:
-          (run.receipt['flutter_build'] as Map?)?['build_name'] as String?,
+      buildName: run.inputs.builtins['FLUTTER_BUILD_NAME'],
       action: () => withoutBuildHooks(
         run.config,
         p.join(work, 'no-hooks'),
-        () => _p.commands.run(_p.sdk.host.flutterLauncher(_p.managed), [
-          '--suppress-analytics',
-          'build',
-          'bundle',
-          '--release',
-          '--no-pub',
-          '--no-tree-shake-icons',
-          '--target-platform',
-          run.req.platform == 'ios' ? 'ios' : 'android-arm64',
-          '--target',
-          run.req.target,
-          '--asset-dir',
-          bundle,
-          '--build-number',
-          run.req.minBuild.toString(),
-        ], cwd: run.project),
+        () => _p.commands.run(
+          _p.sdk.host.flutterLauncher(_p.managed),
+          [
+            '--suppress-analytics',
+            'build',
+            'bundle',
+            '--release',
+            '--no-pub',
+            '--no-tree-shake-icons',
+            '--target-platform',
+            run.req.platform == 'ios' ? 'ios' : 'android-arm64',
+            '--target',
+            run.target,
+            '--asset-dir',
+            bundle,
+            ...options,
+          ],
+          cwd: run.project,
+          extraEnvironment: run.inputs.flutterEnvironment,
+        ),
         flavor: run.req.flavor,
         platform: run.req.platform,
       ),

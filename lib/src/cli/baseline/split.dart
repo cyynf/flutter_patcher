@@ -36,6 +36,7 @@ const releaseReceiptKeys = {
   'package_inputs',
   'artifacts',
   'engine_capabilities',
+  'build_inputs',
 };
 
 /// Differ between rebuilds of identical inputs (APK signing blocks, host OS),
@@ -180,6 +181,9 @@ SplitBaseline splitBaseline(
     'package_inputs': receipt['package_inputs'],
     'artifacts': receipt['artifacts'],
     'engine_capabilities': receipt['engine_capabilities'],
+    // Absent from hosts built before build inputs were recorded.
+    if (receipt.containsKey('build_inputs'))
+      'build_inputs': receipt['build_inputs'],
   };
   final release = <String, dynamic>{
     'schema': 5,
@@ -371,6 +375,10 @@ Future<Map<String, dynamic>> verifyReleaseObject(
   // Older releases predate the optional module-identity capability.
   for (final key in ['module_identity', 'flutter_build', 'resource_patches']) {
     if (!receipt.containsKey(key)) receiptKeys.remove(key);
+  }
+  // And hosts built before 1.1.1 the record of their build inputs.
+  if (!receipt.containsKey('build_inputs')) {
+    receiptKeys.remove('build_inputs');
   }
   valid(
     receipt.length == receiptKeys.length + 4 &&

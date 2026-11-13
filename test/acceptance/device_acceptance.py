@@ -123,6 +123,8 @@ def remove_symlinks(*roots):
 def prepare(args, repo, out):
     dart, cli = dart_binary(args.flutter_sdk), repo / 'bin/flutter_patcher.dart'
     common = ['--flutter-sdk', args.flutter_sdk]
+    if args.index_url:  # Releases not published yet, served from this computer.
+        common += ['--index-url', args.index_url, '--artifacts-url', args.artifacts_url]
     ios = args.platform == 'ios'
 
     def patcher(name, *argv):
@@ -161,18 +163,29 @@ def prepare(args, repo, out):
     # lets automatic signing create or renew the profile.
     patcher('build', 'build', args.platform, *common, '--project', app, '--channel', 'device',
             '--strategy', args.strategy, '--version-code', '1',
-            *(['--export-method', 'development'] if ios else []), '--out', out / 'release')
+            *(['--export-method', 'development'] if ios else []), '--out', out / 'release',
+            '--dart-define=FIXTURE_ENV=release &1')
     built = json.loads((out / 'release/build.json').read_text())
+    # The project moves on to its next version; patches keep the host's build name.
+    pubspec = (app / 'pubspec.yaml').read_text()
+    write(app / 'pubspec.yaml', pubspec.replace('1.0.0+1', '1.1.0+2'))
 
-    for n, revision, crash in [(1, 'patched', False), (2, 'crash', True), (3, 'patched-3', False)]:
+    # Both code strategies carry resource diffs independently of Dart changes.
+    write(app / 'assets/msg.txt', 'asset-patched')
+    # Patch 3 changes a define and adds one; patch 4 changes a define and no source.
+    defines = {3: ['--dart-define=FIXTURE_ENV=patched-3', '--dart-define=FIXTURE_ADDED=yes'],
+               4: ['--dart-define=FIXTURE_ENV=define only']}
+    for n, revision, crash in [(1, 'patched', False), (2, 'crash', True), (3, 'patched-3', False),
+                               (4, 'original', False)]:
         main = source.replace("const revision = 'original';", f"const revision = '{revision}';")
         write(app / 'lib/main.dart', main.replace('const crash = false;', f'const crash = {str(crash).lower()};'))
         patcher(f'patch{n}', 'patch', args.platform, *common, '--project', app, '--fingerprint',
-                built['fingerprint'], '--version-code', '1', '--out', out / f'patch{n}')
+                built['fingerprint'], '--version-code', '1', '--out', out / f'patch{n}', *defines.get(n, []))
 
     name = f'1-default-device-{ABI[args.platform]}.fptc'
-    # Sequences 1, 2, 3, a withdrawal as 4, and patch 1 again as 5: the rollback.
-    for seq, patch, extra in [(1, 1, []), (2, 2, []), (3, 3, []), (4, 3, ['--withdraw']), (5, 1, [])]:
+    # Sequences 1, 2, 3, a withdrawal as 4, patch 1 again as 5: the rollback; then patch 4 as 6.
+    for seq, patch, extra in [(1, 1, []), (2, 2, []), (3, 3, []), (4, 3, ['--withdraw']), (5, 1, []),
+                              (6, 4, [])]:
         patcher(f'publish{seq}', 'publish', '--project', app, '--patch', out / f'patch{patch}', *extra,
                 '--seq', str(seq), '--yes', *key)
         shutil.copyfile(srv / 'pub' / name, srv / f'file{seq}.fptc')
@@ -394,9 +407,11 @@ def verify(args, out):
                     pass
             return {'error': 'no status'}
 
-        asset = 'asset-original'
-        original = dict(revision='original', asset='asset-original', version=None, diagnostic='noPatch')
-        patched = dict(revision='patched', asset=asset, version='1', diagnostic='patched')
+        asset = 'asset-patched'
+        # A patch that gives no define has its host's, and its host's build name.
+        host = dict(env='release &1', added='unset', build_name='1.0.0', available=True)
+        original = dict(revision='original', asset='asset-original', version=None, diagnostic='noPatch', **host)
+        patched = dict(revision='patched', asset=asset, version='1', diagnostic='patched', **host)
         name = (out / 'file-name.txt').read_text().strip()
 
         def offer(file):  # The device finds its file in the store by name.
@@ -426,12 +441,16 @@ def verify(args, out):
              {'crash_started': False}),
             ('crash protection recovers', launch, {**original, 'diagnostic': 'droppedCircuitBreaker'}),
             ('apply next patch', check(3), {'update': True, 'ok': True}),
-            ('next patch boots', launch, {**patched, 'revision': 'patched-3', 'version': '3'}),
+            ('next patch boots', launch, {**patched, 'revision': 'patched-3', 'version': '3',
+                                  'env': 'patched-3', 'added': 'yes'}),
             ('withdraw', check(4), {'update': True, 'ok': True}),
             ('original after withdraw', launch, original),
             ('an older file is not new after it', check(3), {'update': False}),
             ('patch 1 again as 5', check(5), {'update': True, 'ok': True}),
             ('rolled back to patch 1', launch, {**patched, 'version': '5'}),
+            ('apply a patch of a define alone', check(6), {'update': True, 'ok': True}),
+            ('the define alone changed', launch,
+             {**patched, 'revision': 'original', 'version': '6', 'env': 'define only'}),
         ]
         for step, action, expected in plan:
             actual = action()
@@ -464,6 +483,8 @@ def main():
     parser.add_argument('--flutter-sdk', type=Path, required=True)
     parser.add_argument('--serial', help='adb serial; on iOS optional, a devicectl identifier or UDID')
     parser.add_argument('--java-home', default=os.environ.get('JAVA_HOME'))
+    parser.add_argument('--index-url', help='An artifact index other than the published one')
+    parser.add_argument('--artifacts-url', help='With --index-url: where its releases are')
     parser.add_argument('--out', type=Path)
     parser.add_argument('--resume-built', action='store_true',
                         help='Reuse a completed build/patch/publish in --out; rerun device steps only')
